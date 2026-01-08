@@ -1,0 +1,211 @@
+{
+    "search_metadata": {
+        "id": "695a2b4adc74d0ebfdf08025",
+        "status": "Success",
+        "json_endpoint": "https://serpapi.com/searches/8f49230adb37c91d/695a2b4adc74d0ebfdf08025.json",
+        "pixel_position_endpoint": "https://serpapi.com/searches/8f49230adb37c91d/695a2b4adc74d0ebfdf08025.json_with_pixel_position",
+        "created_at": "2026-01-04 08:56:42 UTC",
+        "processed_at": "2026-01-04 08:56:42 UTC",
+        "google_url": "https://www.google.com/search?q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&oq=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&uule=w+CAIQICILVG9reW8sSmFwYW4&sourceid=chrome&ie=UTF-8",
+        "raw_html_file": "https://serpapi.com/searches/8f49230adb37c91d/695a2b4adc74d0ebfdf08025.html",
+        "total_time_taken": 1.13
+    },
+    "search_parameters": {
+        "engine": "google",
+        "q": "富马酸伏诺拉生合成工艺路线优化研究",
+        "location_requested": "Tokyo, Japan",
+        "location_used": "Tokyo,Japan",
+        "google_domain": "google.com",
+        "device": "desktop"
+    },
+    "search_information": {
+        "query_displayed": "富马酸伏诺拉生合成工艺路线优化研究",
+        "total_results": 172000,
+        "time_taken_displayed": 0.49,
+        "organic_results_state": "Results for exact spelling"
+    },
+    "organic_results": [
+        {
+            "position": 1,
+            "title": "CN116143677A - 一种富马酸伏诺拉生的关键中间体的制备 ...",
+            "link": "https://patents.google.com/patent/CN116143677A/zh",
+            "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://patents.google.com/patent/CN116143677A/zh&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQFnoECB4QAQ",
+            "displayed_link": "https://patents.google.com › patent",
+            "snippet": "本发明涉及药物化学领域，提供一种富马酸伏诺拉生关键中间体的制备方法。该法由5‑(2‑氟苯基)‑1H‑吡咯‑3‑甲醛经两步工序制备关键中间体5‑(2‑氟苯基)‑1H‑吡咯‑3‑甲醛，通过 ...",
+            "snippet_highlighted_words": [
+                "富马酸伏诺拉生"
+            ],
+            "source": "Google Patents"
+        },
+        {
+            "position": 2,
+            "title": "富马酸伏诺拉生原料药中25种基因毒性杂质研究",
+            "link": "https://zhuanlan.zhihu.com/p/1969807133324350958",
+            "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://zhuanlan.zhihu.com/p/1969807133324350958&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQFnoECBsQAQ",
+            "displayed_link": "https://zhuanlan.zhihu.com › ...",
+            "favicon": "https://serpapi.com/searches/695a2b4adc74d0ebfdf08025/images/e6cd1dbe9b57da0306eb5c4c23751019b0d2e6232b068e48234a74c774cc9cbc.png",
+            "date": "Nov 6, 2025",
+            "snippet": "富马酸伏诺拉生的合成路线长，涉及的起始原料、试剂、中间体及副反应产物种类繁多，这决定了其基因毒性杂质谱系极为复杂。本项目所研究的杂质清单，充分体现 ...",
+            "snippet_highlighted_words": [
+                "富马酸伏诺拉生",
+                "合成路线",
+                "研究"
+            ],
+            "source": "知乎专栏"
+        },
+        {
+            "position": 3,
+            "title": "CDE关于亚硝胺杂质（NDSRIs）发补案例的审评思考 - 药智新闻",
+            "link": "https://news.yaozh.com/archive/44348.html",
+            "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://news.yaozh.com/archive/44348.html&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQFnoECB8QAQ",
+            "displayed_link": "https://news.yaozh.com › archive",
+            "favicon": "https://serpapi.com/searches/695a2b4adc74d0ebfdf08025/images/e6cd1dbe9b57da0306eb5c4c23751019dc3dc9ee98f0e3c28814bfa2c0f4e1ae.png",
+            "date": "Oct 12, 2024",
+            "snippet": "亚硝胺杂质的产生与化合物的合成工艺路线密切相关，在原料药合成工艺开发期间，应 ... 1.项目名称：富马酸伏诺拉生中19种基因毒杂质. 2.杂质种类.",
+            "snippet_highlighted_words": [
+                "合成工艺路线",
+                "合成工艺",
+                "富马酸伏诺拉生"
+            ],
+            "source": "药智新闻"
+        },
+        {
+            "position": 4,
+            "title": "(12)发明专利申请 - Googleapis.com",
+            "link": "https://patentimages.storage.googleapis.com/0c/2a/96/0ac9f381414c77/CN117503707A.pdf",
+            "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://patentimages.storage.googleapis.com/0c/2a/96/0ac9f381414c77/CN117503707A.pdf&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQFnoECCAQAQ",
+            "displayed_link": "https://patentimages.storage.googleapis.com › ...",
+            "snippet": "富马酸伏诺拉生挤出滚圆工艺制备颗粒表明，外观不圆整，粒度较大，Dv(90)达到. 468μm，口尝试验苦味降低31.25％，沙砾感为0.33，掩味效果不好。 [0812]. 对比例5. [0813].",
+            "snippet_highlighted_words": [
+                "富马酸伏诺拉生",
+                "工艺"
+            ],
+            "source": "googleapis.com"
+        },
+        {
+            "position": 5,
+            "title": "延安医药:延安医药及天风证券关于第一轮问询的回复(2023年年报财务 ...",
+            "link": "https://xinsanban.eastmoney.com/Article/NoticeContent?id=AN202404111630144693&pageIndex=4",
+            "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://xinsanban.eastmoney.com/Article/NoticeContent%3Fid%3DAN202404111630144693%26pageIndex%3D4&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQFnoECCYQAQ",
+            "displayed_link": "https://xinsanban.eastmoney.com › ...",
+            "favicon": "https://serpapi.com/searches/695a2b4adc74d0ebfdf08025/images/e6cd1dbe9b57da0306eb5c4c23751019de071948dcfa862cbe9616bdd02e4042.png",
+            "snippet": "左卡尼汀手性拆分技术前列腺素中间体合作研发已经完成小试批验证，符合预期洛索洛芬钠合成工艺洛索洛芬钠引进再创新生产工艺验证完成富马酸伏诺拉生合成富马酸伏诺拉生 ...",
+            "snippet_highlighted_words": [
+                "合成工艺",
+                "工艺",
+                "富马酸伏诺拉生合成富马酸伏诺拉生"
+            ],
+            "source": "东方财富"
+        },
+        {
+            "position": 6,
+            "title": "离子色谱法检测富马酸伏诺拉生原料药中甲胺残留",
+            "link": "http://tg.zhongguoyaoye023.com/download.aspx?action=pdf&id=35062",
+            "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=http://tg.zhongguoyaoye023.com/download.aspx%3Faction%3Dpdf%26id%3D35062&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQFnoECB0QAQ",
+            "displayed_link": "http://tg.zhongguoyaoye023.com › download",
+            "favicon": "https://serpapi.com/searches/695a2b4adc74d0ebfdf08025/images/e6cd1dbe9b57da0306eb5c4c237510192328d09e239f67ca670d4332a030503b.png",
+            "date": "Mar 20, 2025",
+            "snippet": "另外，目前的方法优化聚焦富马酸伏诺拉生单一品. 种，对不同剂型、不同工艺生产同类别含甲胺原料药. 物品的普适性有待验证。未来的研究需进一步拓展.",
+            "snippet_highlighted_words": [
+                "优化",
+                "富马酸伏诺拉生",
+                "工艺",
+                "研究"
+            ],
+            "source": "中国药业"
+        },
+        {
+            "position": 7,
+            "title": "CN117503707A - 一种掩味微球及其制备工艺和应用",
+            "link": "https://patents.google.com/patent/CN117503707A/zh",
+            "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://patents.google.com/patent/CN117503707A/zh&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQFnoECBwQAQ",
+            "displayed_link": "https://patents.google.com › patent",
+            "snippet": "富马酸伏诺拉生挤出滚圆工艺制备颗粒表明，外观不圆整，粒度较大，Dv(90)达到468μm，口尝试验苦味降低31.25％，沙砾感为0.33，掩味效果不好。 对比例5. 湿法制粒流化包衣制备工艺.",
+            "snippet_highlighted_words": [
+                "富马酸伏诺拉生",
+                "工艺",
+                "工艺"
+            ],
+            "source": "Google Patents"
+        },
+        {
+            "position": 8,
+            "title": "钾离子竞争性酸阻滞剂的临床综合评价Δ",
+            "link": "https://journal.china-pharmacy.com/rc-pub/front/front-article/download/78145722/lowqualitypdf/%E9%92%BE%E7%A6%BB%E5%AD%90%E7%AB%9E%E4%BA%89%E6%80%A7%E9%85%B8%E9%98%BB%E6%BB%9E%E5%89%82%E7%9A%84%E4%B8%B4%E5%BA%8A%E7%BB%BC%E5%90%88%E8%AF%84%E4%BB%B7.pdf",
+            "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://journal.china-pharmacy.com/rc-pub/front/front-article/download/78145722/lowqualitypdf/%25E9%2592%25BE%25E7%25A6%25BB%25E5%25AD%2590%25E7%25AB%259E%25E4%25BA%2589%25E6%2580%25A7%25E9%2585%25B8%25E9%2598%25BB%25E6%25BB%259E%25E5%2589%2582%25E7%259A%2584%25E4%25B8%25B4%25E5%25BA%258A%25E7%25BB%25BC%25E5%2590%2588%25E8%25AF%2584%25E4%25BB%25B7.pdf&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQFnoECDoQAQ",
+            "displayed_link": "https://journal.china-pharmacy.com › lowqualitypdf",
+            "author": "by 黄琳琅",
+            "snippet": "摘要目的对我国已上市的3种钾离子竞争性酸阻滞剂（P-CAB）进行临床综合评价，为医疗机构遴选新药、优化用药目录以. 及合理使用该类药物提供参考。方法收集并整理富马酸伏 ...",
+            "snippet_highlighted_words": [
+                "优化",
+                "富马酸伏"
+            ],
+            "rich_snippet": {
+                "top": {
+                    "detected_extensions": {
+                        "pages": 7
+                    },
+                    "extensions": [
+                        "7 pages"
+                    ]
+                }
+            },
+            "source": "中国药房"
+        },
+        {
+            "position": 9,
+            "title": "山东百诺医药股份有限公司公开转让说明书（申报稿） 中信建投",
+            "link": "https://pdf.dfcfw.com/pdf/H2_AN202506031684107797_1.pdf?1748965153000.pdf",
+            "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://pdf.dfcfw.com/pdf/H2_AN202506031684107797_1.pdf%3F1748965153000.pdf&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQFnoECDQQAQ",
+            "displayed_link": "https://pdf.dfcfw.com › pdf › H2_AN202506031...",
+            "favicon": "https://serpapi.com/searches/695a2b4adc74d0ebfdf08025/images/e6cd1dbe9b57da0306eb5c4c23751019290d8c14c2d8dac677e123e71a83934d.png",
+            "snippet": "富马酸伏诺拉生片-10mg(按. C₁₇H₁₆FN₃O₂S 计). 朗诺制药. 朗诺制药. 2030/2/24. 43 ... 学研究开发盐酸曲拉西利合成小试工艺开发项目。 上述合作研发业务对公司的持续 ...",
+            "snippet_highlighted_words": [
+                "富马酸伏诺拉生",
+                "研究",
+                "合成",
+                "工艺"
+            ],
+            "source": "上海东方财富证券投资咨询有限公司"
+        },
+        {
+            "position": 10,
+            "title": "湖南华纳大药厂股份有限公司关于 ...",
+            "link": "http://static.sse.com.cn/stock/disclosure/announcement/c/202302/688799_20230222_CLF8.pdf",
+            "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=http://static.sse.com.cn/stock/disclosure/announcement/c/202302/688799_20230222_CLF8.pdf&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQFnoECDcQAQ",
+            "displayed_link": "http://static.sse.com.cn › 688799_20230222_CLF8",
+            "date": "Sep 17, 2023",
+            "snippet": "... 生产的在研产品富马酸伏诺拉生片、盐. 酸贝尼地平片、盐酸阿罗洛尔片、地 ... 新药物研究与开发和新药合成新方法、新工艺研究。杨玉社在J.Med ...",
+            "snippet_highlighted_words": [
+                "富马酸伏诺拉生",
+                "研究",
+                "合成",
+                "工艺研究"
+            ],
+            "source": "上海证券交易所"
+        }
+    ],
+    "pagination": {
+        "current": 1,
+        "next": "https://www.google.com/search?q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&sca_esv=06b99298468cf1b5&ei=Sytaac32F5WNp84PjtLAuAQ&start=10&sa=N&sstk=Af77f_dadoAey9_ZG7ONz9S9aUPN5iIJL2lvAt134Ng8sG9lzmQIq7Oui-DDKUxJueFOTy64zRj-qZORqp3FUOMUtx3Bs3fmbd8DwA&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQ8NMDegQICRAO",
+        "other_pages": {
+            "2": "https://www.google.com/search?q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&sca_esv=06b99298468cf1b5&ei=Sytaac32F5WNp84PjtLAuAQ&start=10&sa=N&sstk=Af77f_dadoAey9_ZG7ONz9S9aUPN5iIJL2lvAt134Ng8sG9lzmQIq7Oui-DDKUxJueFOTy64zRj-qZORqp3FUOMUtx3Bs3fmbd8DwA&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQ8tMDegQICRAE",
+            "3": "https://www.google.com/search?q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&sca_esv=06b99298468cf1b5&ei=Sytaac32F5WNp84PjtLAuAQ&start=20&sa=N&sstk=Af77f_dadoAey9_ZG7ONz9S9aUPN5iIJL2lvAt134Ng8sG9lzmQIq7Oui-DDKUxJueFOTy64zRj-qZORqp3FUOMUtx3Bs3fmbd8DwA&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQ8tMDegQICRAG",
+            "4": "https://www.google.com/search?q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&sca_esv=06b99298468cf1b5&ei=Sytaac32F5WNp84PjtLAuAQ&start=30&sa=N&sstk=Af77f_dadoAey9_ZG7ONz9S9aUPN5iIJL2lvAt134Ng8sG9lzmQIq7Oui-DDKUxJueFOTy64zRj-qZORqp3FUOMUtx3Bs3fmbd8DwA&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQ8tMDegQICRAI",
+            "5": "https://www.google.com/search?q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&sca_esv=06b99298468cf1b5&ei=Sytaac32F5WNp84PjtLAuAQ&start=40&sa=N&sstk=Af77f_dadoAey9_ZG7ONz9S9aUPN5iIJL2lvAt134Ng8sG9lzmQIq7Oui-DDKUxJueFOTy64zRj-qZORqp3FUOMUtx3Bs3fmbd8DwA&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQ8tMDegQICRAK",
+            "6": "https://www.google.com/search?q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&sca_esv=06b99298468cf1b5&ei=Sytaac32F5WNp84PjtLAuAQ&start=50&sa=N&sstk=Af77f_dadoAey9_ZG7ONz9S9aUPN5iIJL2lvAt134Ng8sG9lzmQIq7Oui-DDKUxJueFOTy64zRj-qZORqp3FUOMUtx3Bs3fmbd8DwA&ved=2ahUKEwiNyPz4wfGRAxWVxskDHQ4pEEcQ8tMDegQICRAM"
+        }
+    },
+    "serpapi_pagination": {
+        "current": 1,
+        "next_link": "https://serpapi.com/search.json?device=desktop&engine=google&google_domain=google.com&location=Tokyo%2C+Japan&q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&start=10",
+        "next": "https://serpapi.com/search.json?device=desktop&engine=google&google_domain=google.com&location=Tokyo%2C+Japan&q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&start=10",
+        "other_pages": {
+            "2": "https://serpapi.com/search.json?device=desktop&engine=google&google_domain=google.com&location=Tokyo%2C+Japan&q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&start=10",
+            "3": "https://serpapi.com/search.json?device=desktop&engine=google&google_domain=google.com&location=Tokyo%2C+Japan&q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&start=20",
+            "4": "https://serpapi.com/search.json?device=desktop&engine=google&google_domain=google.com&location=Tokyo%2C+Japan&q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&start=30",
+            "5": "https://serpapi.com/search.json?device=desktop&engine=google&google_domain=google.com&location=Tokyo%2C+Japan&q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&start=40",
+            "6": "https://serpapi.com/search.json?device=desktop&engine=google&google_domain=google.com&location=Tokyo%2C+Japan&q=%E5%AF%8C%E9%A9%AC%E9%85%B8%E4%BC%8F%E8%AF%BA%E6%8B%89%E7%94%9F%E5%90%88%E6%88%90%E5%B7%A5%E8%89%BA%E8%B7%AF%E7%BA%BF%E4%BC%98%E5%8C%96%E7%A0%94%E7%A9%B6&start=50"
+        }
+    }
+}

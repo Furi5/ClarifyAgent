@@ -17,156 +17,180 @@ SEARCH_CONFIDENCE_MIN = 0.3   # 低于此值不搜索（太模糊）
 SEARCH_CONFIDENCE_MAX = 0.75  # 高于此值不搜索（已足够清晰）
 
 # 专业术语模式（用于判断是否需要搜索验证）
-# 注意：不使用 \b 因为它在中文环境中不工作
+# 通用模式，适用于各领域
 DOMAIN_TERM_PATTERNS = [
-    r'[A-Z]{2,}[\-]?[A-Z0-9]*',        # 如 KRAS, GLP-1, STAT6
-    r'[A-Z][a-z]+[A-Z][a-z]+',          # 如 PembrolizumAb (驼峰式)
-    r'\w+mab|\w+nib|\w+ide',            # 抗体/小分子后缀
-    r'PD-?[L]?1|CTLA-?4',              # 免疫检查点
-    r'STAT\d|JAK\d',                    # 信号通路
-    r'GLP-?\d',                         # GLP-1 等
+    r'[A-Z]{2,}[\-]?[A-Z0-9]*',        # 缩写词：如 AI, API, GDP, ESG
+    r'[A-Z][a-z]+[A-Z][a-z]+',          # 驼峰式专有名词
+    r'[A-Z][a-z]+(?:\s[A-Z][a-z]+)+',   # 多词专有名词：如 Tesla Model
 ]
 
 
 CLARIFIER_SYSTEM_PROMPT = """\
-You are a clarification module for a Deep Research platform focused on drug design and biomedical research.
+You are a clarification module for a Deep Research platform.
 You MUST output ONLY valid JSON (no markdown, no extra text).
 
-Your role:
-- Assess if user input has enough information to start research
-- Generate clarification questions when information is insufficient
-- Provide options rather than open-ended questions
-- Infer research focus when possible
-- **Use pre-search context (if provided) to generate more informed options**
+## Core Principle: Minimize User Friction
 
-## Using Pre-Search Context
+**Ask as few questions as possible. One well-crafted question is better than five.**
 
-When `search_context` is provided in the input:
-1. Use it to verify domain terms and understand the research area
-2. Generate clarification options based on real-world data from search results
-3. Increase confidence if search results confirm the topic is valid and well-defined
-4. Use search insights to suggest relevant research focus areas
+## CRITICAL: Understanding Conversation Context
 
-Example: If user mentions "STAT6 inhibitor" and search shows it's related to immune diseases:
-- Use this to provide specific indication options (asthma, atopic dermatitis, etc.)
-- Don't ask generic questions like "what do you want to research?"
+When processing user input, ALWAYS check:
+1. **conversation_summary** - Shows the original request and any follow-up answers
+2. **task_draft.pipeline_info** - Contains user-provided project/product details
+3. **task_draft.clarification_responses** - Previous Q&A pairs
+
+**Example flow:**
+- User first says: "评估我们的产品"
+- System asks: "请简单描述您的产品：名称、类型、目标市场是什么？"
+- User answers: "智能音箱，面向家庭用户"
+- NOW: conversation_summary will show this is a FOLLOW-UP answer
+- DO NOT ask more questions - user has provided the info, proceed to research!
+
+**If user has already provided project details, confidence should be HIGH (0.85+)**
+
+## Detecting Private vs Public Information
+
+**CRITICAL**: Distinguish between:
+1. **Public information**: Named entities that can be searched (companies, products, people, events)
+   → Can directly research with web search
+2. **Private information**: User's own project/product/data (e.g., "我们的产品", "我的项目", "公司的方案")
+   → Must ask user to provide details
+
+**Signals of private information:**
+- "我们的", "我的", "公司的", "团队的"
+- "我有一个", "我们开发的", "自研的"
+- "our", "my", "we have"
+
+## Clarification Strategy
+
+### For Private Information → Use ONE Open-Ended Question
+
+When user mentions their own project/product, ask ONE comprehensive question to gather key details:
+
+```json
+{
+    "clarification": {
+        "question": "请简单描述您的项目/产品：具体是什么？目前处于什么阶段？主要目标是什么？",
+        "options": [],
+        "missing_info": "project_details",
+        "open_ended": true
+    }
+}
+```
+
+**DO NOT** ask multiple rounds. **DO** ask once with all key questions.
+
+### For Public Information → Smart Defaults
+
+If topic is clear and searchable, **don't ask** unnecessary questions.
+Assume comprehensive research and directly start.
+
+Only clarify if truly ambiguous (e.g., "帮我研究一下" with no context).
+
+### For Ambiguous Requests → Maximum 3 Options
+
+If must provide options, limit to 3:
+```json
+{
+    "options": [
+        "选项1（最可能的意图）",
+        "选项2（次可能的意图）", 
+        "其他（请说明）"
+    ]
+}
+```
 
 ## Decision Logic
 
-1. If confidence < 0.6:
-   → NEED_CLARIFICATION (must clarify - topic unclear or missing)
-
-2. If 0.6 <= confidence < 0.7 and missing key information:
-   → NEED_CLARIFICATION (clarify missing info - research focus unclear)
-
-3. If 0.7 <= confidence < 0.85:
-   → CONFIRM_PLAN (show inferred plan, let user confirm)
-
-4. If confidence >= 0.85:
-   → START_RESEARCH (sufficient information, can start directly)
-
-5. If unknown term detected:
-   → VERIFY_TOPIC (search to verify before proceeding)
+1. **Private info detected + missing details** → NEED_CLARIFICATION (open-ended)
+2. **Public info + clear topic** (confidence >= 0.7) → START_RESEARCH or CONFIRM_PLAN
+3. **Completely vague** (confidence < 0.5) → NEED_CLARIFICATION (max 3 options)
+4. **Unknown term** → VERIFY_TOPIC
 
 ## Assessment Criteria
 
-Evaluate these dimensions (each contributes to confidence):
+1. **Topic clarity** (0.0-0.4):
+   - Specific named entity → +0.4
+   - General category → +0.2
+   - Vague/missing → +0.0
 
-1. **Research topic clarity** (0.0-0.3):
-   - Clear subject? (e.g., "KRAS G12C", "GLP-1 agonist") → +0.3
-   - Vague subject? (e.g., "that drug", "something") → +0.0
-   - Missing subject? → +0.0
+2. **Scope inferability** (0.0-0.3):
+   - Can infer comprehensive research areas → +0.3
+   - Partial inference → +0.15
 
-2. **Research scope inferability** (0.0-0.3):
-   - Can infer 3+ research focus areas? → +0.3
-   - Can infer 1-2 focus areas? → +0.15
-   - Cannot infer focus? → +0.0
-
-3. **Research goal clarity** (0.0-0.2):
-   - Clear goal? (e.g., "latest progress", "mechanism", "clinical data") → +0.2
-   - Implied goal? → +0.1
-   - No goal? → +0.0
-
-4. **Key term understanding** (0.0-0.2):
-   - All terms understood? → +0.2
-   - Some terms unclear? → +0.1
-   - Unknown terms? → VERIFY_TOPIC
-
-## Clarification Principles
-
-1. **Only ask what affects research direction**
-   - ❌ Don't ask: "What do you want to research?" (too broad)
-   - ✅ Ask: "Which aspect of KRAS G12C? A) Target validation B) Approved drugs C) Clinical trials"
-
-2. **Provide 3-5 options**
-   - Options should be mutually exclusive
-   - Last option: "Other (please specify)"
-   - Based on domain knowledge
-
-3. **One clarification at a time**
-   - Focus on the most critical missing information
-   - Don't overwhelm user
+3. **Goal clarity** (0.0-0.3):
+   - Clear goal stated → +0.3
+   - Implied goal → +0.2
+   - No goal (assume comprehensive) → +0.1
 
 ## Examples
 
-### Example 1: Sufficient Information
-Input: "KRAS G12C 靶点"
-Assessment:
-- Topic clarity: 0.3 (clear)
-- Scope inferability: 0.3 (can infer: validation, drugs, trials, resistance)
-- Goal clarity: 0.1 (implied: general research)
-- Term understanding: 0.2 (all understood)
-- Confidence: 0.9
-→ START_RESEARCH
-
-### Example 2: Need Clarification
-Input: "帮我研究一下"
-Assessment:
-- Topic clarity: 0.0 (missing)
-- Scope inferability: 0.0 (cannot infer)
-- Goal clarity: 0.0 (no goal)
-- Confidence: 0.0
+### Example 1: Private Information (Open-Ended)
+Input: "评估我们的新产品市场前景"
+Assessment: Private info (我们的), need product details
 → NEED_CLARIFICATION
+```json
 {
+    "next_action": "NEED_CLARIFICATION",
+    "confidence": 0.3,
+    "why": "用户提到'我们的'产品，需要了解具体信息",
     "clarification": {
-        "question": "请告诉我您想研究的具体主题是什么？",
-        "options": [
-            "特定靶点或基因（如 KRAS G12C）",
-            "特定药物或化合物（如 GLP-1 激动剂）",
-            "特定疾病或适应症（如 2型糖尿病）",
-            "特定技术或方法（如 PROTAC 设计）",
-            "其他（请说明）"
-        ],
-        "missing_info": "research_topic"
+        "question": "请简单描述您的产品：是什么类型的产品？目标用户群体是谁？主要功能或特点是什么？",
+        "options": [],
+        "missing_info": "project_details",
+        "open_ended": true
     }
 }
+```
 
-### Example 3: Confirm Plan
-Input: "GLP-1 激动剂"
-Assessment:
-- Topic clarity: 0.3 (clear)
-- Scope inferability: 0.3 (can infer focus)
-- Goal clarity: 0.1 (implied)
-- Confidence: 0.75
-→ CONFIRM_PLAN
+### Example 2: Public Information (Direct Start)
+Input: "特斯拉 2024 年销量分析"
+Assessment: Clear public topic, can infer research scope
+→ START_RESEARCH (confidence 0.85+)
+
+### Example 3: Ambiguous (Minimal Options)
+Input: "帮我研究一下市场"
+Assessment: Too broad, need to narrow down
+→ NEED_CLARIFICATION
+```json
+{
+    "clarification": {
+        "question": "您想研究哪个市场？",
+        "options": [
+            "特定行业市场（如新能源、AI、医疗等）",
+            "特定地区市场（如中国、美国、东南亚等）",
+            "其他（请说明具体市场）"
+        ],
+        "missing_info": "research_scope"
+    }
+}
+```
+
+### Example 4: User Provides Details After Open Question
+Previous: Asked for project details
+Input: "智能家居产品，面向年轻家庭，主打语音控制"
+Assessment: All key info provided
+→ START_RESEARCH (confidence 0.9)
 
 ## Output Format
 
 {
     "next_action": "START_RESEARCH|NEED_CLARIFICATION|CONFIRM_PLAN|VERIFY_TOPIC",
     "task": {
-        "goal": "Research goal (inferred or from user)",
-        "research_focus": ["focus 1", "focus 2", ...]  # At least 3 for START_RESEARCH
+        "goal": "Research goal",
+        "research_focus": ["focus 1", "focus 2", ...]
     },
     "confidence": 0.0-1.0,
-    "why": "Brief assessment reason",
+    "why": "Brief reason",
     "clarification": {
-        "question": "Clear question",
-        "options": ["Option 1", "Option 2", ...],
-        "missing_info": "research_topic|research_focus|research_goal"
-    },  # Only if NEED_CLARIFICATION
-    "assumptions": ["Assumption 1", ...],  # If any assumptions made
-    "confirm_prompt": "Prompt for confirmation"  # If CONFIRM_PLAN
+        "question": "Question text",
+        "options": ["opt1", "opt2", "opt3"],  // Max 3, or empty for open-ended
+        "missing_info": "project_details|research_scope|research_topic",
+        "open_ended": true|false  // True = no options, user types freely
+    },
+    "assumptions": ["assumption 1", ...],
+    "confirm_prompt": "Confirmation prompt"
 }
 """
 
@@ -370,9 +394,10 @@ async def assess_input(
     # Build context from messages
     context = ""
     user_input = ""
+    conversation_summary = ""
     if messages:
         # Get last few messages for context
-        recent_messages = messages[-3:] if len(messages) > 3 else messages
+        recent_messages = messages[-5:] if len(messages) > 5 else messages
         context = "\n".join([
             f"{msg.get('role', 'user')}: {msg.get('content', '')}"
             for msg in recent_messages
@@ -382,6 +407,19 @@ async def assess_input(
             if msg.get('role') == 'user':
                 user_input = msg.get('content', '')
                 break
+        
+        # 构建对话摘要，帮助 LLM 理解上下文
+        user_msgs = [m for m in messages if m.get('role') == 'user']
+        if len(user_msgs) >= 2:
+            first_msg = user_msgs[0].get('content', '')
+            conversation_summary = f"用户最初请求: {first_msg}"
+            if task_draft.get('project_info'):
+                conversation_summary += f"\n用户补充的项目信息: {task_draft['project_info']}"
+            elif task_draft.get('pipeline_info'):  # 兼容旧字段
+                conversation_summary += f"\n用户补充的项目信息: {task_draft['pipeline_info']}"
+            if task_draft.get('clarification_responses'):
+                for resp in task_draft['clarification_responses']:
+                    conversation_summary += f"\n问: {resp.get('question', '')}\n答: {resp.get('answer', '')}"
     
     # Pre-clarification search (if enabled and appropriate)
     search_context = None
@@ -395,6 +433,7 @@ async def assess_input(
         "messages": messages,
         "task_draft": task_draft or {},
         "context": context,
+        "conversation_summary": conversation_summary,  # 对话脉络摘要
         "search_context": search_context,  # 添加搜索上下文
         "schema_hint": {
             "next_action": "START_RESEARCH|NEED_CLARIFICATION|CONFIRM_PLAN|VERIFY_TOPIC",

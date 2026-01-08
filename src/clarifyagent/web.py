@@ -370,8 +370,22 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
             yield f"data: {json.dumps({'type': 'error', 'message': 'Message cannot be empty'})}\n\n"
             return
         
+        # Handle plan modification request
+        if pending_plan and (user_message.startswith("修改计划:") or user_message.startswith("修改计划：")):
+            modification = user_message.split(":", 1)[1].strip() if ":" in user_message else user_message.split("：", 1)[1].strip()
+            add_user(state, f"[修改计划] {modification}")
+            session["pending_plan"] = None
+            
+            # Add modification to task draft context
+            if "modification_notes" not in state.task_draft:
+                state.task_draft["modification_notes"] = []
+            state.task_draft["modification_notes"].append(modification)
+            
+            # Continue to re-assess with modification
+            user_message = modification
+        
         # Handle confirmation for pending plan
-        if pending_plan and is_confirmation(user_message):
+        elif pending_plan and is_confirmation(user_message):
             add_user(state, "[用户确认] 已确认按计划执行")
             session["pending_plan"] = None
             
@@ -391,24 +405,53 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                 yield f"data: {json.dumps({'type': 'error', 'message': '研究已完成，但未返回结果。'})}\n\n"
             return
         
-        # Handle option selection for clarification
+        # Handle clarification response (options or open-ended)
         if pending_plan and pending_plan.clarification:
             options = pending_plan.clarification.get("options", [])
-            choice = is_option_selection(user_message, options)
-            if choice:
-                selected_option = options[choice - 1]
-                add_user(state, f"[澄清回复] {selected_option}")
+            missing_info = pending_plan.clarification.get("missing_info", "")
+            is_open_ended = pending_plan.clarification.get("open_ended", False) or not options
+            
+            if is_open_ended:
+                # 开放式问题：用户直接输入信息
+                # 将用户回答与原始问题关联，更新到 task_draft
+                add_user(state, f"[管线信息补充] {user_message}")
                 
-                missing_info = pending_plan.clarification.get("missing_info", "")
-                if missing_info == "research_topic":
-                    state.task_draft["goal"] = selected_option
-                elif missing_info == "research_focus":
-                    if "research_focus" not in state.task_draft:
-                        state.task_draft["research_focus"] = []
-                    state.task_draft["research_focus"].append(selected_option)
+                if missing_info in ("pipeline_details", "project_details"):
+                    # 解析用户提供的项目/产品信息，补充到 task_draft
+                    state.task_draft["project_info"] = user_message
+                    # 尝试从用户回答中提取关键信息
+                    original_goal = state.task_draft.get("goal", "")
+                    state.task_draft["goal"] = f"{original_goal}（{user_message}）"
+                elif missing_info == "research_topic":
+                    state.task_draft["goal"] = user_message
+                else:
+                    # 通用处理：将用户回答添加到上下文
+                    if "clarification_responses" not in state.task_draft:
+                        state.task_draft["clarification_responses"] = []
+                    state.task_draft["clarification_responses"].append({
+                        "question": pending_plan.clarification.get("question", ""),
+                        "answer": user_message
+                    })
                 
                 session["pending_plan"] = None
-                user_message = selected_option
+                # 不改变 user_message，让它包含完整的用户输入
+                
+            else:
+                # 选项式问题
+                choice = is_option_selection(user_message, options)
+                if choice:
+                    selected_option = options[choice - 1]
+                    add_user(state, f"[澄清回复] {selected_option}")
+                    
+                    if missing_info == "research_topic":
+                        state.task_draft["goal"] = selected_option
+                    elif missing_info == "research_focus":
+                        if "research_focus" not in state.task_draft:
+                            state.task_draft["research_focus"] = []
+                        state.task_draft["research_focus"].append(selected_option)
+                    
+                    session["pending_plan"] = None
+                    user_message = selected_option
         
         # Normal input processing
         add_user(state, user_message)

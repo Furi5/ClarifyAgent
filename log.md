@@ -490,3 +490,252 @@ SEARCH_CONFIDENCE_MAX = 0.75   # 高于此值不搜索
 - 输出为连贯的段落而非简单列表
 - 更专业的研究报告格式
 
+### 优化 Markdown 渲染样式
+
+**修改原因：**
+- 研究报告中的标题间距和列表缩进显示不正确
+- 简单的正则替换无法正确处理复杂的 Markdown 结构
+
+**修改内容：**
+
+1. **`src/clarifyagent/static/index.html`**（修改）
+   - 重写 `renderMarkdown()` 函数：
+     - 改用逐行处理，正确识别标题层级（h2-h5）
+     - 正确处理无序列表（ul）和有序列表（ol）
+     - 支持列表嵌套
+     - 添加 `processInline()` 函数处理粗体、斜体、行内代码
+   - 优化 CSS 样式：
+     - h2: 17px, 底部边框分隔
+     - h3: 15px, 顶部 margin 20px
+     - h4: 14px, 主题色
+     - h5: 13px, 次要文字色
+     - 列表缩进 24px，列表项间距 6px
+     - 代码块样式（等宽字体、背景色）
+     - 嵌套列表间距优化
+
+**影响：**
+- 标题层级清晰，间距合理
+- 列表缩进正确，支持有序和无序列表
+- 行内代码正确显示
+- 整体报告排版更专业
+
+### 澄清选项"其他"支持自定义输入
+
+**修改原因：**
+- 选择"其他（请说明）"时应该提供输入框让用户输入具体内容
+- 之前只是简单发送数字，无法让用户补充信息
+
+**修改内容：**
+
+1. **`src/clarifyagent/static/index.html`**（修改）
+   - 修改 `addClarification()` 函数：
+     - 检测选项是否包含"其他"、"请说明"、"Other"
+     - 对"其他"选项渲染不同的 HTML 结构（含输入框）
+   - 新增 `toggleOtherInput()` 函数：点击"其他"时展开/收起输入框
+   - 新增 `submitOther()` 函数：提交自定义输入（格式：`选项号: 用户输入`）
+   - 添加对应 CSS 样式：
+     - `.other-option`: 特殊布局
+     - `.other-input-container`: 输入框容器
+     - `.other-input`: 文本输入框样式
+     - `.other-submit`: 确定按钮样式
+
+**交互流程：**
+1. 点击"其他（请说明）"选项
+2. 展开输入框
+3. 用户输入具体内容
+4. 点击"确定"或按 Enter 提交
+5. 发送格式：`5: 用户输入的内容`
+
+**影响：**
+- 用户可以在选择"其他"时补充具体信息
+- 提升澄清交互的灵活性
+- 更好的用户体验
+
+### 计划确认支持修改功能
+
+**修改原因：**
+- 选择"修改计划"时应该让用户说明要修改什么，而不是直接开始研究
+- 需要更好的交互体验让用户能够调整计划
+
+**修改内容：**
+
+1. **`src/clarifyagent/static/index.html`**（修改）
+   - 新增 `addPlanConfirmation()` 函数：专门处理计划确认界面
+     - 显示计划内容（Markdown 渲染）
+     - 两个按钮：✓ 确认开始研究 / ✎ 修改计划
+     - 修改计划时展开输入框
+   - 新增 `confirmPlan()` 函数：确认并开始研究
+   - 新增 `toggleModifyPlan()` 函数：展开/收起修改输入框
+   - 新增 `submitModification()` 函数：提交修改（格式：`修改计划: 用户输入`）
+   - 添加 CSS 样式：
+     - `.plan-actions`: 按钮布局
+     - `.plan-btn`: 按钮样式（primary/secondary/text）
+     - `.modify-container`: 修改输入区域
+     - `.modify-input`: 文本框（带 placeholder 提示示例）
+   - 修改 `handleResult()` 函数：区分 `clarification` 和 `confirm_plan` 的处理
+
+2. **`src/clarifyagent/web.py`**（修改）
+   - 在 `stream_generator()` 中添加"修改计划"请求的处理
+   - 检测 `修改计划:` 或 `修改计划：` 前缀
+   - 将修改意见存入 `state.task_draft["modification_notes"]`
+   - 重新进行 assess_input 以生成新计划
+
+**交互流程：**
+1. 显示计划内容和两个按钮
+2. 点击"确认开始研究" → 发送"1"，开始执行
+3. 点击"修改计划" → 展开输入框
+4. 用户输入修改意见（如"去掉市场分析，只关注临床数据"）
+5. 点击"提交修改" → 发送 `修改计划: 用户输入`
+6. 后端重新评估，生成新计划
+
+**影响：**
+- 用户可以灵活调整研究计划
+- 修改意见会被记录并影响后续计划生成
+- 更好的计划确认交互体验
+
+### 乔布斯式澄清优化：开放式问题 + 减少选项
+
+**修改原因：**
+- 之前的澄清逻辑问太多次（靶点→阶段→适应症...），用户体验割裂
+- 当用户提到"我们的管线"时，是私有信息，需要用户一次性提供
+- 选项太多（5个），不够简洁
+
+**核心原则：**
+- "用户不该被问太多问题" - 乔布斯设计哲学
+- 一个精心设计的问题胜过五个选择题
+- 区分公开信息 vs 私有信息
+
+**修改内容：**
+
+1. **`src/clarifyagent/clarifier.py`**（修改）
+   - 重写 `CLARIFIER_SYSTEM_PROMPT`，添加：
+     - **私有信息检测**：识别"我们的"、"我的"、"公司的"等信号
+     - **开放式问题策略**：对私有信息用一个综合问题收集（靶点+阶段+适应症）
+     - **最大3个选项**：减少选择负担
+     - **智能默认**：公开信息直接研究，不问多余问题
+   - 新的 clarification 格式支持 `open_ended: true`
+
+2. **`src/clarifyagent/static/index.html`**（修改）
+   - 修改 `addClarification()` 函数：
+     - 当 `options` 为空时，显示开放式输入框（textarea）
+     - 输入框自动聚焦
+     - 支持 Enter 提交
+   - 新增 `submitOpenAnswer()` 函数
+   - 添加 CSS 样式：
+     - `.open-input-container`: 输入容器
+     - `.open-input`: 多行文本框样式
+     - `.open-submit`: 提交按钮（带箭头动画）
+
+**交互对比：**
+
+```
+# 之前（多轮选择题）
+用户: 评估我们的ADC管线
+系统: 你要评估哪个维度？(5个选项)
+用户: 靶点
+系统: 哪个靶点？(5个选项)  
+用户: EGFR
+系统: 确认计划？
+用户: 确认
+= 4轮对话
+
+# 现在（一个开放式问题）
+用户: 评估我们的ADC管线
+系统: 请简单描述您的ADC：靶点、开发阶段、主要适应症是什么？
+用户: EGFR ADC，II期，非小细胞肺癌
+系统: [开始研究]
+= 2轮对话
+```
+
+**影响：**
+- 减少50%+的对话轮数
+- 用户体验更流畅
+- 私有信息一次性收集完毕
+- 公开信息直接开始研究
+
+### 修复开放式问题回答后的上下文丢失问题
+
+**问题描述：**
+- 用户问："评估我们的ADC管线"
+- 系统正确问："请描述您的ADC：靶点、阶段、适应症"
+- 用户答："二期，胃癌，HERG"
+- 系统错误理解，继续追问（没有理解这是在回答管线信息）
+
+**根本原因：**
+1. `web.py` 没有正确处理开放式问题的回答
+2. 用户的管线信息没有更新到 `task_draft`
+3. Clarifier 没有看到对话脉络摘要
+
+**修改内容：**
+
+1. **`src/clarifyagent/web.py`**（修改）
+   - 在 `stream_generator()` 中添加开放式问题的处理逻辑
+   - 检测 `is_open_ended` 或空 `options`
+   - 将用户回答存入 `task_draft["pipeline_info"]`
+   - 记录 `clarification_responses` 保存问答对
+
+2. **`src/clarifyagent/clarifier.py`**（修改）
+   - 构建 `conversation_summary` 对话摘要
+   - 包含：原始请求 + 管线信息 + 历史问答
+   - 添加到 payload 传递给 LLM
+   - 更新 `CLARIFIER_SYSTEM_PROMPT`：
+     - 强调检查 `conversation_summary`
+     - 如果用户已提供 `pipeline_info`，confidence 应为高值
+     - 不要重复追问已回答的问题
+
+**修复后流程：**
+```
+用户: 评估我们的ADC管线
+系统: 请描述您的ADC：靶点、阶段、适应症
+用户: 二期，胃癌，HERG
+→ task_draft.pipeline_info = "二期，胃癌，HERG"
+→ conversation_summary = "用户最初请求: 评估ADC管线\n用户补充的管线信息: 二期，胃癌，HERG"
+→ LLM 理解这是回答，confidence 高，直接开始研究
+```
+
+**影响：**
+- 开放式问题的回答被正确处理
+- 对话上下文完整传递给 LLM
+- 不再重复追问已回答的问题
+
+### Clarifier 领域无关化改造
+
+**修改原因：**
+- Clarifier prompt 之前有大量医药领域专业内容（KRAS、ADC、GLP-1 等）
+- Deep Research 平台应该支持所有领域，不只是医药
+- 澄清逻辑需要通用化
+
+**修改内容：**
+
+1. **`src/clarifyagent/clarifier.py`**（修改）
+   - 重写 `CLARIFIER_SYSTEM_PROMPT`：
+     - 移除 "drug design and biomedical research" 领域限定
+     - 将所有医药示例替换为通用示例
+       - "EGFR ADC" → "智能家居产品"
+       - "靶点、阶段、适应症" → "产品类型、目标用户、主要功能"
+       - "特斯拉 2024 年销量分析" 作为公开信息示例
+     - 将 `pipeline_details` 改为 `project_details`
+   - 修改 `DOMAIN_TERM_PATTERNS`：
+     - 移除医药特定模式（mab/nib/ide 后缀、PD-1、STAT3 等）
+     - 保留通用模式（缩写词、驼峰命名、多词专有名词）
+   - 更新 `conversation_summary` 构建逻辑，支持 `project_info`
+
+2. **`src/clarifyagent/web.py`**（修改）
+   - 将 `pipeline_info` 改为 `project_info`
+   - 兼容 `pipeline_details` 和 `project_details`
+
+**示例对比：**
+
+```
+# 之前（医药专属）
+"请描述您的ADC管线：靶点、开发阶段、适应症"
+
+# 现在（通用）
+"请简单描述您的项目/产品：具体是什么？目前处于什么阶段？主要目标是什么？"
+```
+
+**影响：**
+- Clarifier 现在可以处理任何领域的研究请求
+- 示例和术语不再偏向医药领域
+- 保持核心逻辑不变（私有/公开信息区分、开放式问题、最多3选项）
+

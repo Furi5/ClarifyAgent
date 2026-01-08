@@ -284,6 +284,228 @@
             font-weight: 500;
         }
 
+        /* Other option with input */
+        .other-option {
+            flex-direction: column;
+            align-items: stretch;
+            padding: 0;
+            cursor: default;
+        }
+
+        .other-option .option-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+        }
+
+        .other-option:hover .option-header {
+            background: var(--accent-light);
+        }
+
+        .other-input-container {
+            display: flex;
+            gap: 8px;
+            padding: 0 14px 12px 14px;
+            background: var(--bg-elevated);
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .other-input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 13px;
+            background: var(--bg-base);
+            color: var(--text-primary);
+            outline: none;
+            transition: border-color 0.15s ease;
+        }
+
+        .other-input:focus {
+            border-color: var(--accent);
+        }
+
+        .other-input::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        .other-submit {
+            padding: 8px 16px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .other-submit:hover {
+            background: var(--accent-hover);
+        }
+
+        /* Open-ended Input (no options) */
+        .open-input-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+            align-items: flex-end;
+        }
+
+        .open-input {
+            flex: 1;
+            padding: 12px 14px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            background: var(--bg-base);
+            color: var(--text-primary);
+            resize: none;
+            min-height: 44px;
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            line-height: 1.5;
+        }
+
+        .open-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-light);
+        }
+
+        .open-input::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        .open-submit {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 12px 20px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .open-submit:hover {
+            background: var(--accent-hover);
+            transform: translateX(2px);
+        }
+
+        .submit-arrow {
+            transition: transform 0.15s ease;
+        }
+
+        .open-submit:hover .submit-arrow {
+            transform: translateX(3px);
+        }
+
+        /* Plan Confirmation */
+        .plan-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .plan-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 18px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            border: none;
+        }
+
+        .plan-btn.primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .plan-btn.primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .plan-btn.primary.small {
+            padding: 8px 14px;
+        }
+
+        .plan-btn.secondary {
+            background: var(--bg-base);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .plan-btn.secondary:hover {
+            border-color: var(--accent);
+            background: var(--accent-light);
+        }
+
+        .plan-btn.text {
+            background: transparent;
+            color: var(--text-secondary);
+            padding: 8px 14px;
+        }
+
+        .plan-btn.text:hover {
+            color: var(--text-primary);
+        }
+
+        .btn-icon {
+            font-size: 14px;
+        }
+
+        .modify-container {
+            margin-top: 14px;
+            padding: 14px;
+            background: var(--bg-elevated);
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .modify-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: inherit;
+            background: var(--bg-base);
+            color: var(--text-primary);
+            resize: vertical;
+            min-height: 60px;
+            outline: none;
+            transition: border-color 0.15s ease;
+        }
+
+        .modify-input:focus {
+            border-color: var(--accent);
+        }
+
+        .modify-input::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        .modify-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
         /* Research Result */
         .result {
             font-size: 14px;
@@ -292,28 +514,45 @@
         }
 
         .result h2 {
-            font-size: 16px;
+            font-size: 17px;
             font-weight: 600;
             color: var(--text-primary);
-            margin: 0 0 12px 0;
+            margin: 0 0 16px 0;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-subtle);
         }
 
         .result h3 {
             font-size: 15px;
             font-weight: 600;
             color: var(--text-primary);
-            margin: 16px 0 10px 0;
+            margin: 20px 0 10px 0;
+        }
+
+        .result h3:first-child {
+            margin-top: 0;
         }
 
         .result h4 {
             font-size: 14px;
             font-weight: 600;
             color: var(--accent);
+            margin: 16px 0 8px 0;
+        }
+
+        .result h5 {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
             margin: 12px 0 6px 0;
         }
 
         .result p {
-            margin: 0 0 10px 0;
+            margin: 0 0 12px 0;
+        }
+
+        .result p:last-child {
+            margin-bottom: 0;
         }
 
         .result strong {
@@ -321,20 +560,46 @@
             font-weight: 600;
         }
 
+        .result code {
+            background: var(--bg-elevated);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: 'SF Mono', Monaco, monospace;
+        }
+
         .result ul, .result ol {
-            margin: 6px 0 10px 0;
-            padding-left: 18px;
+            margin: 8px 0 14px 0;
+            padding-left: 24px;
+        }
+
+        .result ul {
+            list-style-type: disc;
+        }
+
+        .result ol {
+            list-style-type: decimal;
         }
 
         .result li {
-            margin-bottom: 4px;
-            color: var(--text-secondary);
+            margin-bottom: 6px;
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .result li strong {
+            color: var(--accent);
+        }
+
+        /* Nested lists */
+        .result li ul, .result li ol {
+            margin: 6px 0 6px 0;
         }
 
         .references-section {
-            margin-top: 16px;
-            padding-top: 12px;
-            border-top: 1px solid var(--border-subtle);
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
         }
 
         .section-title {
@@ -343,7 +608,7 @@
             color: var(--text-tertiary);
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
         }
 
         /* References */
@@ -675,31 +940,74 @@
             return div.innerHTML;
         }
 
-        // Simple markdown to HTML converter
+        // Markdown to HTML converter
         function renderMarkdown(text) {
             if (!text) return '';
-            return text
+            
+            // Split into lines for better processing
+            let lines = text.split('\n');
+            let html = '';
+            let inList = false;
+            let listType = '';
+            
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+                
                 // Headers
-                .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-                .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-                .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-                // Bold
+                if (line.startsWith('#### ')) {
+                    if (inList) { html += `</${listType}>`; inList = false; }
+                    html += `<h5>${processInline(line.slice(5))}</h5>`;
+                } else if (line.startsWith('### ')) {
+                    if (inList) { html += `</${listType}>`; inList = false; }
+                    html += `<h4>${processInline(line.slice(4))}</h4>`;
+                } else if (line.startsWith('## ')) {
+                    if (inList) { html += `</${listType}>`; inList = false; }
+                    html += `<h3>${processInline(line.slice(3))}</h3>`;
+                } else if (line.startsWith('# ')) {
+                    if (inList) { html += `</${listType}>`; inList = false; }
+                    html += `<h2>${processInline(line.slice(2))}</h2>`;
+                }
+                // Unordered list
+                else if (line.match(/^[\-\*] /)) {
+                    if (!inList || listType !== 'ul') {
+                        if (inList) html += `</${listType}>`;
+                        html += '<ul>';
+                        inList = true;
+                        listType = 'ul';
+                    }
+                    html += `<li>${processInline(line.slice(2))}</li>`;
+                }
+                // Ordered list
+                else if (line.match(/^\d+\. /)) {
+                    if (!inList || listType !== 'ol') {
+                        if (inList) html += `</${listType}>`;
+                        html += '<ol>';
+                        inList = true;
+                        listType = 'ol';
+                    }
+                    html += `<li>${processInline(line.replace(/^\d+\. /, ''))}</li>`;
+                }
+                // Empty line
+                else if (line.trim() === '') {
+                    if (inList) { html += `</${listType}>`; inList = false; }
+                }
+                // Normal paragraph
+                else {
+                    if (inList) { html += `</${listType}>`; inList = false; }
+                    html += `<p>${processInline(line)}</p>`;
+                }
+            }
+            
+            if (inList) html += `</${listType}>`;
+            
+            return html;
+        }
+        
+        function processInline(text) {
+            return text
                 .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                // Italic
                 .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                // Lists
-                .replace(/^- (.+)$/gm, '<li>$1</li>')
-                .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>')
-                // Line breaks
-                .replace(/\n\n/g, '</p><p>')
-                .replace(/\n/g, '<br>')
-                // Wrap in paragraph
-                .replace(/^/, '<p>')
-                .replace(/$/, '</p>')
-                // Clean up list items
-                .replace(/<p><li>/g, '<ul><li>')
-                .replace(/<\/li><\/p>/g, '</li></ul>')
-                .replace(/<\/li><br><li>/g, '</li><li>');
+                .replace(/`(.+?)`/g, '<code>$1</code>');
         }
 
         function scrollBottom() {
@@ -798,14 +1106,50 @@
 
         function addClarification(question, options) {
             hideWelcome();
-            let optionsHtml = '';
+            let responseHtml = '';
+            
             if (options && options.length) {
-                optionsHtml = '<div class="options">' + options.map((opt, i) => `
-                    <div class="option" onclick="selectOption(${i + 1}, '${escape(opt)}')">
-                        <span class="option-num">${i + 1}</span>
-                        <span>${escape(opt)}</span>
+                // 有选项：显示选项列表
+                responseHtml = '<div class="options">' + options.map((opt, i) => {
+                    const isOther = opt.includes('其他') || opt.includes('请说明') || opt.includes('Other');
+                    const optNum = i + 1;
+                    if (isOther) {
+                        return `
+                            <div class="option other-option" id="option-${optNum}">
+                                <div class="option-header" onclick="toggleOtherInput(${optNum})">
+                                    <span class="option-num">${optNum}</span>
+                                    <span>${escape(opt)}</span>
+                                </div>
+                                <div class="other-input-container" id="other-input-${optNum}" style="display:none;">
+                                    <input type="text" class="other-input" id="other-text-${optNum}" 
+                                           placeholder="请输入具体内容..." 
+                                           onkeydown="if(event.key==='Enter')submitOther(${optNum})">
+                                    <button class="other-submit" onclick="submitOther(${optNum})">确定</button>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    return `
+                        <div class="option" onclick="selectOption(${optNum}, '${escape(opt)}')">
+                            <span class="option-num">${optNum}</span>
+                            <span>${escape(opt)}</span>
+                        </div>
+                    `;
+                }).join('') + '</div>';
+            } else {
+                // 无选项（开放式问题）：显示输入框
+                responseHtml = `
+                    <div class="open-input-container">
+                        <textarea class="open-input" id="openInput" 
+                            placeholder="请在此输入您的回答..."
+                            rows="2"
+                            onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();submitOpenAnswer();}"></textarea>
+                        <button class="open-submit" onclick="submitOpenAnswer()">
+                            <span>提交</span>
+                            <span class="submit-arrow">→</span>
+                        </button>
                     </div>
-                `).join('') + '</div>';
+                `;
             }
 
             const html = `
@@ -813,12 +1157,47 @@
                     <div class="avatar">D</div>
                     <div class="content">
                         <div class="clarification-content">${renderMarkdown(question)}</div>
-                        ${optionsHtml}
+                        ${responseHtml}
                     </div>
                 </div>
             `;
             document.getElementById('messages').insertAdjacentHTML('beforeend', html);
+            
+            // 如果是开放式问题，自动聚焦输入框
+            if (!options || !options.length) {
+                setTimeout(() => {
+                    const input = document.getElementById('openInput');
+                    if (input) input.focus();
+                }, 100);
+            }
+            
             scrollBottom();
+        }
+
+        function submitOpenAnswer() {
+            const input = document.getElementById('openInput');
+            if (input && input.value.trim()) {
+                document.getElementById('input').value = input.value.trim();
+                send();
+            }
+        }
+
+        function toggleOtherInput(num) {
+            const container = document.getElementById(`other-input-${num}`);
+            const isVisible = container.style.display !== 'none';
+            container.style.display = isVisible ? 'none' : 'flex';
+            if (!isVisible) {
+                document.getElementById(`other-text-${num}`).focus();
+            }
+        }
+
+        function submitOther(num) {
+            const input = document.getElementById(`other-text-${num}`);
+            const text = input.value.trim();
+            if (text) {
+                document.getElementById('input').value = `${num}: ${text}`;
+                send();
+            }
         }
 
         function addResult(data) {
@@ -949,13 +1328,10 @@
         function handleResult(data) {
             switch (data.response_type) {
                 case 'clarification':
+                    addClarification(data.message, data.options);
+                    break;
                 case 'confirm_plan':
-                    addClarification(
-                        data.message, 
-                        data.response_type === 'confirm_plan' 
-                            ? ['确认开始研究', '修改计划'] 
-                            : data.options
-                    );
+                    addPlanConfirmation(data.message);
                     break;
                 case 'research_result':
                     addResult(data.research_result);
@@ -965,6 +1341,62 @@
                     break;
                 default:
                     addText(data.message);
+            }
+        }
+
+        function addPlanConfirmation(planText) {
+            hideWelcome();
+            const html = `
+                <div class="message assistant">
+                    <div class="avatar">D</div>
+                    <div class="content">
+                        <div class="clarification-content">${renderMarkdown(planText)}</div>
+                        <div class="plan-actions">
+                            <button class="plan-btn primary" onclick="confirmPlan()">
+                                <span class="btn-icon">✓</span>
+                                确认开始研究
+                            </button>
+                            <button class="plan-btn secondary" onclick="toggleModifyPlan()">
+                                <span class="btn-icon">✎</span>
+                                修改计划
+                            </button>
+                        </div>
+                        <div class="modify-container" id="modifyContainer" style="display:none;">
+                            <textarea class="modify-input" id="modifyInput" 
+                                placeholder="请说明您想如何修改计划，例如：&#10;• 去掉市场分析部分，只关注临床数据&#10;• 增加对比竞品的分析&#10;• 缩小范围，只研究 Patritumab deruxtecan"
+                                rows="3"></textarea>
+                            <div class="modify-actions">
+                                <button class="plan-btn text" onclick="toggleModifyPlan()">取消</button>
+                                <button class="plan-btn primary small" onclick="submitModification()">提交修改</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('messages').insertAdjacentHTML('beforeend', html);
+            scrollBottom();
+        }
+
+        function confirmPlan() {
+            document.getElementById('input').value = '1';
+            send();
+        }
+
+        function toggleModifyPlan() {
+            const container = document.getElementById('modifyContainer');
+            const isVisible = container.style.display !== 'none';
+            container.style.display = isVisible ? 'none' : 'block';
+            if (!isVisible) {
+                document.getElementById('modifyInput').focus();
+            }
+        }
+
+        function submitModification() {
+            const input = document.getElementById('modifyInput');
+            const text = input.value.trim();
+            if (text) {
+                document.getElementById('input').value = `修改计划: ${text}`;
+                send();
             }
         }
     </script>

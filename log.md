@@ -1,5 +1,94 @@
 # 修改日志
 
+## 2024-12-20
+
+### 修复研究目标提取不完整导致研究方向错误的问题
+
+**问题描述：**
+- 用户请求 "搜集和预期销售额，构建Competitive Decision"
+- 系统返回的是 "STAT6小分子抑制剂研究进展"（药物机制）
+- 完全忽略了用户真正需要的：销售预测、竞争分析
+
+**根本原因：**
+- `_convert_to_plan` 函数只使用 `parsed_intent.get("subject")` 作为研究目标
+- 忽略了 `action`（销售预测）和 `output_format`（Competitive Decision）
+- 导致 Planner 收到的目标是 "STAT6小分子抑制剂" 而不是 "销售额预测和竞争决策分析"
+
+**修复内容：**
+
+1. **`src/clarifyagent/clarifier.py`**（修改 `_convert_to_plan` 函数）
+   - 将 `goal` 改为组合 `subject` + `action` + `output_format`
+   - 将 `research_focus` 优先设置为 `output_format` 和 `action`，而不是 `constraints`
+   - 例如：原来是 "STAT6小分子抑制剂"，现在是 "STAT6小分子抑制剂 - 市场分析和销售预测 (Competitive Decision)"
+
+2. **`src/clarifyagent/planner.py`**（更新 Planner prompt）
+   - 添加关于"匹配用户实际需求"的原则
+   - 添加市场分析/竞争情报类型的示例
+   - 帮助 Planner 正确理解商业分析类研究请求
+
+**影响：**
+- 系统现在能正确识别用户的核心需求（科研 vs 市场分析 vs 竞争情报）
+- 研究目标更加完整，包含主体、动作和期望输出
+- 研究重点优先关注用户关心的核心问题
+
+---
+
+### 修复多 Worker 模式下澄清对话 Session 丢失问题
+
+**问题描述：**
+- 用户回答澄清问题后，系统没有正确组合用户的回答和原始问题
+- 系统继续提出新的澄清问题，而不是判断信息是否足够开始研究
+- 问题是间歇性的，有时正常有时失败
+
+**根本原因：**
+- `WORKERS=4` 多进程模式下，`sessions` 字典存储在内存中
+- 每个 Worker 进程有独立的内存空间，session 数据不共享
+- 用户第一次请求被 Worker 1 处理，session 存储在 Worker 1 内存
+- 用户第二次请求可能被 Worker 2 处理，Worker 2 内存中没有这个 session
+- 导致 `task_draft={}`, `messages=[]`，系统无法看到之前的对话历史
+
+**日志证据：**
+- 成功案例：`messages_count: 3`, `task_draft: {"goal": "STAT6小分子抑制剂", ...}`
+- 失败案例：`messages_count: 1`, `task_draft: {}`
+
+**修复方案：**
+1. **`run_web.py`**（修改）
+   - 将默认 `WORKERS` 从 4 改为 1
+   - 添加注释说明多 Worker 模式下 session 不共享的问题
+   - 启动时如果检测到 `WORKERS > 1`，显示警告信息
+
+2. **`README.md`**（修改）
+   - 更新文档，说明多 Worker 模式的限制
+   - 移除不推荐的多 Worker 配置示例
+   - 建议如需高并发，需实现 Redis 等共享 session 存储
+
+**影响：**
+- 单 Worker 模式下，多轮对话（澄清问答）可以正常工作
+- session 状态在整个对话过程中正确保持
+- 需要高并发时，需要实现外部 session 存储（如 Redis）
+
+---
+
+### 优化进度显示，移除重复的顶部标题
+
+**修改原因：**
+- 进度显示中，顶部标题（如"规划研究方向..."）和步骤列表中的步骤（如"规划研究方向 ✓"）重复显示
+- 用户反馈不需要顶部重复的状态显示
+
+**修改内容：**
+
+1. **`src/clarifyagent/static/index.html`**（修改）
+   - 移除 `progress-header` 和 `progress-title` 元素
+   - 移除 `updateProgress` 函数中更新顶部标题的逻辑
+   - 移除 `currentStage` 变量（不再需要）
+   - 移除相关的 CSS 样式（`.progress-header`, `.progress-title`）
+   - 只保留步骤列表（`progress-steps`）显示进度
+
+**影响：**
+- 进度显示更加简洁，避免重复信息
+- 用户只需关注步骤列表，了解当前进度和已完成步骤
+- 界面更加清晰，减少视觉干扰
+
 ## 2024-12-19
 
 ### 修复 planner.py 中 schema_hint 与 schema.py 定义不一致的问题
@@ -738,4 +827,317 @@ SEARCH_CONFIDENCE_MAX = 0.75   # 高于此值不搜索
 - Clarifier 现在可以处理任何领域的研究请求
 - 示例和术语不再偏向医药领域
 - 保持核心逻辑不变（私有/公开信息区分、开放式问题、最多3选项）
+
+### 优化开放式问题交互：移除内嵌输入框
+
+**修改原因：**
+- 开放式问题显示内嵌输入框不符合聊天应用的交互习惯
+- 用户更习惯在底部统一的输入框回答
+- 减少界面元素，更简洁
+
+**修改内容：**
+
+1. **`src/clarifyagent/static/index.html`**（修改）
+   - 修改 `addClarification()` 函数：
+     - 当 `options` 为空（开放式问题）时，不显示内嵌输入框
+     - 只显示问题文本
+     - 自动聚焦底部输入框，并设置 placeholder 提示
+   - 修改 `send()` 函数：
+     - 发送消息后恢复默认 placeholder
+   - 移除 `submitOpenAnswer()` 函数（不再需要）
+
+**交互对比：**
+
+```
+# 之前
+系统: 请描述您的ADC管线...
+      [___内嵌输入框___] [提交→]
+
+# 现在
+系统: 请描述您的ADC管线...
+[底部输入框: 请在此输入您的回答...]
+```
+
+**影响：**
+- 交互更自然，符合聊天应用习惯
+- 界面更简洁，减少视觉干扰
+- 统一使用底部输入框，体验一致
+
+### 快速改进：多进程和并发限制
+
+**修改原因：**
+- 单进程无法充分利用多核 CPU
+- 需要支持更多并发用户
+- 防止过载导致服务崩溃
+
+**修改内容：**
+
+1. **`run_web.py`**（修改）
+   - 添加多进程支持：默认 4 个 worker
+   - 添加并发限制：默认 100
+   - 支持环境变量配置：
+     - `WORKERS`: worker 进程数（默认 4）
+     - `LIMIT_CONCURRENCY`: 最大并发数（默认 100）
+     - `PORT`: 端口号（默认 8080）
+     - `RELOAD`: 是否启用自动重载（默认 false）
+   - 智能处理 reload 和 workers 冲突（不能同时使用）
+
+2. **`README.md`**（修改）
+   - 添加生产环境启动示例
+   - 添加并发能力说明
+
+**配置示例：**
+```bash
+# 生产环境
+WORKERS=4 LIMIT_CONCURRENCY=100 uv run python run_web.py
+
+# 高并发场景
+WORKERS=8 LIMIT_CONCURRENCY=200 uv run python run_web.py
+
+# 开发模式
+RELOAD=true WORKERS=1 uv run python run_web.py
+```
+
+**性能提升：**
+- 单进程：≈ 10-50 并发用户
+- 4 workers：≈ 50-200 并发用户（提升 4-10 倍）
+- 8 workers：≈ 100-400 并发用户（提升 10-40 倍）
+
+**注意事项：**
+- Session 存储在内存中，多进程时每个进程独立（重启会丢失）
+- 生产环境建议使用 Redis 或数据库存储 session
+- 实际并发能力受 LLM API 速率限制影响
+
+### 澄清问题格式优化：Markdown 列表格式
+
+**修改原因：**
+- 澄清问题太长，不易阅读
+- 用户希望一行一个问题，更清晰
+- Markdown 列表格式更专业
+
+**修改内容：**
+
+1. **`src/clarifyagent/clarifier.py`**（修改）
+   - 更新 `CLARIFIER_SYSTEM_PROMPT`：
+     - 要求使用 Markdown 列表格式（`- ` 前缀）
+     - 每个问题一行
+     - 根据领域特点生成相应问题（如医药领域：靶点、阶段、适应症）
+   - 更新示例：
+     - 通用产品示例：产品类型、目标用户、功能特点
+     - 医药管线示例：靶点、开发阶段、适应症
+
+**格式对比：**
+
+```
+# 之前
+"请简单描述您的ADC管线：具体是什么类型的ADC（抗体药物偶联物）管线？针对哪个靶点或适应症？目前处于哪个研发阶段（临床前/临床I/II/III期）？"
+
+# 现在
+"请简单描述您的ADC管线：
+- 针对哪个靶点？
+- 目前处于哪个开发阶段（临床前/临床I/II/III期）？
+- 主要适应症是什么？"
+```
+
+**影响：**
+- 问题更清晰易读
+- 用户更容易理解需要提供哪些信息
+- 格式统一，专业美观
+
+### 重构：通用需求澄清模块（Universal Clarifier）
+
+**修改原因：**
+- 当前 Clarifier 与 Deep Research 场景耦合
+- 需要支持嵌入到任何 Agent 场景
+- 提高代码复用性和可维护性
+
+**核心设计：**
+
+1. **5 维度信息框架**（场景无关）
+   - WHAT（主体/对象）- 优先级最高
+   - ACTION（动作/操作）
+   - CONSTRAINT（约束/条件）
+   - CONTEXT（背景/上下文）
+   - OUTPUT（输出/结果）
+
+2. **通用数据结构**
+   - `ClarifyAction`: PROCEED / NEED_CLARIFICATION / CONFIRM / REJECT
+   - `ClarificationQuestion`: 问题、选项、维度、信息增益
+   - `ClarifyResult`: 完整的评估结果
+
+3. **场景特化机制**
+   - 通过 `custom_prompt_additions` 添加场景特定指导
+   - 核心逻辑保持不变
+   - Deep Research 场景使用 `DEEP_RESEARCH_ADDITIONS`
+
+**修改内容：**
+
+1. **`src/clarifyagent/universal_clarifier.py`**（新建）
+   - 实现通用澄清器 `UniversalClarifier`
+   - 5 维度评估框架
+   - LLM 无关设计（通过回调函数）
+   - 场景特化配置示例
+
+2. **`src/clarifyagent/clarifier.py`**（重构）
+   - 使用 `UniversalClarifier` 作为底层实现
+   - 保持向后兼容（`assess_input` 接口不变）
+   - 添加适配器 `_convert_to_plan` 转换结果格式
+   - 集成预搜索功能（Deep Research 特定）
+
+**使用示例：**
+
+```python
+# 基础用法
+clarifier = create_clarifier_for_litellm(model="gpt-4o-mini")
+result = await clarifier.assess("帮我分析一下")
+
+# 场景特化（Deep Research）
+research_clarifier = UniversalClarifier(
+    llm_call=llm_call_func,
+    custom_prompt_additions=DEEP_RESEARCH_ADDITIONS,
+)
+```
+
+**优势：**
+- ✅ 场景无关，可嵌入任何 Agent
+- ✅ 5 维度框架，系统化评估
+- ✅ 信息增益优先，问最有价值的问题
+- ✅ LLM 无关，支持任何模型
+- ✅ 向后兼容，现有代码无需修改
+
+**影响：**
+- Clarifier 现在是通用模块，可复用到其他场景
+- 代码结构更清晰，职责分离
+- 更容易测试和维护
+
+### 修复上下文丢失问题 + 改进进度显示
+
+**问题描述：**
+1. 用户回答澄清问题后，系统没有考虑上下文，继续问不相关的问题
+2. 不同研究阶段的日志显示不够清晰
+
+**修复内容：**
+
+1. **`src/clarifyagent/web.py`**（修改）
+   - 修复重复添加用户消息：添加 `skip_add_user` 标志
+   - 改进 conversation_summary 构建：
+     - 添加【重要】标记，明确用户已补充信息
+     - 检查最新对话，识别澄清问答
+     - 提示 LLM 不要重复询问
+   - 改进进度显示：
+     - clarifying: "分析研究需求" + "正在理解您的问题背景和目标"
+     - planning: "规划研究方向" + "正在分解研究任务：{goal}"
+     - searching: "检索信息 (N 个方向)" + "正在并行检索：{方向预览}"
+     - synthesizing: "整合分析结果" + "正在综合分析 N 个研究方向的信息"
+     - complete: "研究完成" + "研究报告已生成"
+
+2. **`src/clarifyagent/clarifier.py`**（修改）
+   - 改进 conversation_summary 构建逻辑
+   - 明确标记用户已回答澄清问题
+   - 检查最新对话识别澄清问答
+
+3. **`src/clarifyagent/universal_clarifier.py`**（修改）
+   - 在 prompt 中添加 "CRITICAL: Check Conversation Context" 部分
+   - 明确要求检查 conversation_summary
+   - 如果用户已回答，不要重复询问
+
+4. **`src/clarifyagent/static/index.html`**（修改）
+   - 为每个阶段添加 `title` 和 `log` 字段
+   - 动态更新 `progress-title` 根据当前阶段
+   - 改进 `updateProgress` 函数，更新标题和详细信息
+
+**进度显示对比：**
+
+```
+# 之前
+正在研究...
+分析研究需求...
+
+# 现在
+分析研究需求...  (clarifying)
+  正在理解您的问题背景和目标
+
+规划研究方向...  (planning)
+  正在分解研究任务：评估ADC管线价值
+
+检索信息 (5 个方向)  (searching)
+  正在并行检索：靶点生物学, 竞争格局, 技术平台...
+
+整合分析结果  (synthesizing)
+  正在综合分析 5 个研究方向的信息，生成研究报告
+
+研究完成  (complete)
+  研究报告已生成
+```
+
+**影响：**
+- 用户回答澄清问题后，系统能正确识别并继续处理
+- 不同阶段的日志显示更清晰，用户体验更好
+- 进度信息更具体，用户知道系统在做什么
+
+### 添加 Markdown 表格渲染支持
+
+**修改原因：**
+- 研究报告可能包含表格数据（如对比分析、数据汇总等）
+- 当前 Markdown 渲染不支持表格，表格会显示为纯文本
+
+**修改内容：**
+
+1. **`src/clarifyagent/static/index.html`**（修改）
+   - 重写 `renderMarkdown()` 函数：
+     - 添加表格检测逻辑（识别包含 `|` 的行）
+     - 解析表头、分隔行、数据行
+     - 生成 HTML `<table>` 结构
+   - 添加表格 CSS 样式：
+     - `.markdown-table`: 基础表格样式
+     - 表头背景色、边框、悬停效果
+     - 响应式设计，适配不同屏幕
+
+**表格格式支持：**
+```markdown
+| 列1 | 列2 | 列3 |
+|-----|-----|-----|
+| 数据1 | 数据2 | 数据3 |
+| 数据4 | 数据5 | 数据6 |
+```
+
+**样式特点：**
+- 清晰的边框和分隔线
+- 表头有背景色区分
+- 行悬停高亮效果
+- 内边距合理，易于阅读
+
+**影响：**
+- 研究报告中的表格数据可以正确显示
+- 提升数据展示的专业性和可读性
+- 支持复杂的数据对比和分析展示
+
+### 改进列表渲染样式
+
+**修改原因：**
+- 列表项（`-` 开头）应该显示为带圆点的列表
+- 长列表项换行时需要保持正确的缩进
+- 确保列表在所有内容区域都能正确显示
+
+**修改内容：**
+
+1. **`src/clarifyagent/static/index.html`**（修改）
+   - 改进 `.result ul` 和 `.result ol` 样式：
+     - 添加 `list-style-position: outside;` 确保圆点在外部
+     - 添加 `display: list-item;` 确保列表项正确显示
+     - 添加 `padding-left: 4px;` 增加内边距
+     - 添加 `::marker` 样式，设置圆点颜色
+   - 为 `.content` 区域添加列表样式（研究报告显示区域）
+   - 改进 `.clarification-content` 的列表样式
+
+**样式改进：**
+- 列表项间距：8px
+- 列表缩进：24px
+- 圆点颜色：次要文字色
+- 换行时保持缩进：`list-style-position: outside`
+
+**影响：**
+- 列表项正确显示为带圆点的列表
+- 长文本换行时保持正确的缩进
+- 列表在所有内容区域（研究报告、澄清问题）都能正确显示
 

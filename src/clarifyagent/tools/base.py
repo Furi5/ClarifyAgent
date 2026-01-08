@@ -3,7 +3,7 @@ from typing import Any, List, Dict
 from agents import RunContextWrapper, function_tool
 
 from .serperapi import web_search
-from .jina import jina_read
+# from .jina import jina_read  # 已禁用以提升性能
 
 
 @function_tool

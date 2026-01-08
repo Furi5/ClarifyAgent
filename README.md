@@ -52,11 +52,28 @@ export JINA_API_KEY="your-jina-key"
 
 ### 3. 启动 Web 服务
 
+**基础启动：**
 ```bash
 uv run python run_web.py
 ```
 
+**开发模式（自动重载）：**
+```bash
+RELOAD=true uv run python run_web.py
+```
+
 打开浏览器访问 http://localhost:8080
+
+**⚠️ 关于多进程模式：**
+- 当前 session 存储在内存中，多 worker 进程之间不共享
+- 多 worker 模式会导致多轮对话（如澄清问答）时 session 状态丢失
+- 默认使用单 worker 模式确保 session 正常工作
+- 如需高并发，需实现 Redis 等共享 session 存储
+
+```bash
+# 不推荐：多 worker 模式（session 不共享）
+WORKERS=4 uv run python run_web.py
+```
 
 ### 4. 命令行模式
 

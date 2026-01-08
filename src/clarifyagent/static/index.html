@@ -214,6 +214,32 @@
             margin-bottom: 0;
         }
 
+        /* Lists in content area */
+        .content ul, .content ol {
+            margin: 8px 0 14px 0;
+            padding-left: 24px;
+            list-style-position: outside;
+        }
+
+        .content ul {
+            list-style-type: disc;
+        }
+
+        .content ol {
+            list-style-type: decimal;
+        }
+
+        .content li {
+            margin-bottom: 8px;
+            line-height: 1.7;
+            display: list-item;
+            padding-left: 4px;
+        }
+
+        .content li::marker {
+            color: var(--text-secondary);
+        }
+
         /* Clarification Content */
         .clarification-content {
             font-size: 14px;
@@ -236,12 +262,28 @@
         }
 
         .clarification-content ul, .clarification-content ol {
-            margin: 6px 0 10px 0;
-            padding-left: 18px;
+            margin: 8px 0 12px 0;
+            padding-left: 24px;
+            list-style-position: outside;
+        }
+
+        .clarification-content ul {
+            list-style-type: disc;
+        }
+
+        .clarification-content ol {
+            list-style-type: decimal;
         }
 
         .clarification-content li {
-            margin-bottom: 4px;
+            margin-bottom: 6px;
+            line-height: 1.7;
+            display: list-item;
+            padding-left: 4px;
+        }
+
+        .clarification-content li::marker {
+            color: var(--text-secondary);
         }
 
         /* Options */
@@ -571,6 +613,7 @@
         .result ul, .result ol {
             margin: 8px 0 14px 0;
             padding-left: 24px;
+            list-style-position: outside;
         }
 
         .result ul {
@@ -582,9 +625,15 @@
         }
 
         .result li {
-            margin-bottom: 6px;
+            margin-bottom: 8px;
             color: var(--text-primary);
-            line-height: 1.6;
+            line-height: 1.7;
+            display: list-item;
+            padding-left: 4px;
+        }
+
+        .result li::marker {
+            color: var(--text-secondary);
         }
 
         .result li strong {
@@ -594,6 +643,53 @@
         /* Nested lists */
         .result li ul, .result li ol {
             margin: 6px 0 6px 0;
+        }
+
+        /* Markdown Tables */
+        .markdown-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 13px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .markdown-table thead {
+            background: var(--bg-elevated);
+        }
+
+        .markdown-table th {
+            padding: 10px 12px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--border);
+        }
+
+        .markdown-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-subtle);
+            color: var(--text-primary);
+        }
+
+        .markdown-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .markdown-table tbody tr:hover {
+            background: var(--bg-elevated);
+        }
+
+        .markdown-table th:first-child,
+        .markdown-table td:first-child {
+            padding-left: 16px;
+        }
+
+        .markdown-table th:last-child,
+        .markdown-table td:last-child {
+            padding-right: 16px;
         }
 
         .references-section {
@@ -669,19 +765,6 @@
             border-radius: 8px;
             padding: 16px 20px;
             min-width: 300px;
-        }
-
-        .progress-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-
-        .progress-title {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-primary);
         }
 
         .progress-steps {
@@ -940,7 +1023,7 @@
             return div.innerHTML;
         }
 
-        // Markdown to HTML converter
+        // Enhanced Markdown to HTML converter
         function renderMarkdown(text) {
             if (!text) return '';
             
@@ -949,12 +1032,117 @@
             let html = '';
             let inList = false;
             let listType = '';
+            let inTable = false;
+            let tableRows = [];
+            let indentLevel = 0;
             
-            for (let i = 0; i < lines.length; i++) {
-                let line = lines[i];
+            function parseTableRow(line) {
+                // Remove leading/trailing |
+                line = line.trim();
+                if (line.startsWith('|')) line = line.slice(1);
+                if (line.endsWith('|')) line = line.slice(0, -1);
+                // Split by | and trim each cell
+                return line.split('|').map(cell => cell.trim());
+            }
+            
+            function isTableSeparator(line) {
+                // Check if line is like |---|---| or |:---|:---:|---:|
+                return line.trim().match(/^\|[\s\-\:]*\|[\s\-\:]*\|/);
+            }
+            
+            function renderTable(rows) {
+                if (rows.length < 2) return ''; // Need at least header + separator
                 
+                let tableHtml = '<table class="markdown-table">';
+                
+                // Header row
+                if (rows.length > 0) {
+                    tableHtml += '<thead><tr>';
+                    const headerCells = parseTableRow(rows[0]);
+                    headerCells.forEach(cell => {
+                        tableHtml += `<th>${processInline(cell)}</th>`;
+                    });
+                    tableHtml += '</tr></thead>';
+                }
+                
+                // Data rows (skip separator row)
+                if (rows.length > 2) {
+                    tableHtml += '<tbody>';
+                    for (let i = 2; i < rows.length; i++) {
+                        tableHtml += '<tr>';
+                        const cells = parseTableRow(rows[i]);
+                        cells.forEach(cell => {
+                            tableHtml += `<td>${processInline(cell)}</td>`;
+                        });
+                        tableHtml += '</tr>';
+                    }
+                    tableHtml += '</tbody>';
+                }
+                
+                tableHtml += '</table>';
+                return tableHtml;
+            }
+
+            function getIndentLevel(line) {
+                const match = line.match(/^(\s*)/);
+                return match ? match[1].length : 0;
+            }
+
+            function isListItem(line) {
+                return line.trim().match(/^[\-\*\+] /) || line.trim().match(/^\d+\. /);
+            }
+
+            // 预处理：检测紧跟列表的段落文本（如药品名称）
+            function preprocessLines(lines) {
+                let processed = [];
+                for (let i = 0; i < lines.length; i++) {
+                    let line = lines[i];
+                    let next = lines[i + 1];
+                    
+                    // 如果当前行是普通文本，下一行是列表项，则将当前行标记为列表标题
+                    if (line.trim() && !isListItem(line) && !line.startsWith('#') && 
+                        next && isListItem(next) && getIndentLevel(next) === 0) {
+                        processed.push({ type: 'list-title', content: line.trim(), indent: 0 });
+                    } else {
+                        processed.push({ type: 'normal', content: line, indent: getIndentLevel(line) });
+                    }
+                }
+                return processed;
+            }
+
+            const processedLines = preprocessLines(lines);
+            
+            for (let i = 0; i < processedLines.length; i++) {
+                let lineObj = processedLines[i];
+                let line = lineObj.content;
+                let trimmed = line.trim();
+                
+                // Check if this is a table row
+                if (trimmed.includes('|') && trimmed.match(/^\|.+\|/)) {
+                    if (!inTable) {
+                        // Start new table
+                        if (inList) { html += `</${listType}>`; inList = false; }
+                        inTable = true;
+                        tableRows = [];
+                    }
+                    tableRows.push(line);
+                    continue;
+                }
+                
+                // If we were in a table, render it
+                if (inTable) {
+                    html += renderTable(tableRows);
+                    inTable = false;
+                    tableRows = [];
+                }
+
+                // List title (drug names, etc.)
+                if (lineObj.type === 'list-title') {
+                    if (inList) { html += `</${listType}>`; inList = false; }
+                    html += `<h5 style="margin: 16px 0 8px 0; font-weight: 600; color: var(--text-primary); font-size: 14px;">${processInline(trimmed)}</h5>`;
+                }
                 // Headers
-                if (line.startsWith('#### ')) {
+                else if (line.startsWith('#### ')) {
                     if (inList) { html += `</${listType}>`; inList = false; }
                     html += `<h5>${processInline(line.slice(5))}</h5>`;
                 } else if (line.startsWith('### ')) {
@@ -967,35 +1155,43 @@
                     if (inList) { html += `</${listType}>`; inList = false; }
                     html += `<h2>${processInline(line.slice(2))}</h2>`;
                 }
-                // Unordered list
-                else if (line.match(/^[\-\*] /)) {
+                // Unordered list (support -, *, +)
+                else if (line.match(/^[\s]*[\-\*\+] /)) {
                     if (!inList || listType !== 'ul') {
                         if (inList) html += `</${listType}>`;
                         html += '<ul>';
                         inList = true;
                         listType = 'ul';
                     }
-                    html += `<li>${processInline(line.slice(2))}</li>`;
+                    const listContent = line.replace(/^[\s]*[\-\*\+] /, '');
+                    html += `<li>${processInline(listContent)}</li>`;
                 }
-                // Ordered list
-                else if (line.match(/^\d+\. /)) {
+                // Ordered list (improved regex)
+                else if (line.match(/^[\s]*\d+\. /)) {
                     if (!inList || listType !== 'ol') {
                         if (inList) html += `</${listType}>`;
                         html += '<ol>';
                         inList = true;
                         listType = 'ol';
                     }
-                    html += `<li>${processInline(line.replace(/^\d+\. /, ''))}</li>`;
+                    const listContent = line.replace(/^[\s]*\d+\. /, '');
+                    html += `<li>${processInline(listContent)}</li>`;
                 }
-                // Empty line
-                else if (line.trim() === '') {
+                // Empty line - end list but don't add content
+                else if (trimmed === '') {
                     if (inList) { html += `</${listType}>`; inList = false; }
+                    // Don't add empty paragraphs
                 }
-                // Normal paragraph
-                else {
+                // Normal paragraph - but only if not empty and not part of list structure
+                else if (trimmed && lineObj.type === 'normal') {
                     if (inList) { html += `</${listType}>`; inList = false; }
                     html += `<p>${processInline(line)}</p>`;
                 }
+            }
+            
+            // Handle table at end of text
+            if (inTable) {
+                html += renderTable(tableRows);
             }
             
             if (inList) html += `</${listType}>`;
@@ -1027,11 +1223,36 @@
         }
 
         const PROGRESS_STEPS = {
-            clarifying: { label: '分析问题', icon: '🔍' },
-            planning: { label: '制定计划', icon: '📋' },
-            searching: { label: '检索信息', icon: '🌐' },
-            synthesizing: { label: '整合分析', icon: '✨' },
-            complete: { label: '完成', icon: '✓' }
+            clarifying: { 
+                label: '分析问题', 
+                icon: '🔍',
+                title: '分析研究需求...',
+                log: '正在分析您的研究需求，理解问题背景和目标'
+            },
+            planning: { 
+                label: '制定计划', 
+                icon: '📋',
+                title: '规划研究方向...',
+                log: '正在分解研究任务，规划需要探索的方向'
+            },
+            searching: { 
+                label: '检索信息', 
+                icon: '🌐',
+                title: '检索相关信息...',
+                log: '正在并行检索多个研究方向的信息'
+            },
+            synthesizing: { 
+                label: '整合分析', 
+                icon: '✨',
+                title: '整合分析结果...',
+                log: '正在综合分析检索结果，生成研究报告'
+            },
+            complete: { 
+                label: '完成', 
+                icon: '✓',
+                title: '研究完成',
+                log: '研究已完成'
+            }
         };
 
         let currentSteps = {};
@@ -1043,10 +1264,6 @@
                     <div class="avatar">D</div>
                     <div class="content">
                         <div class="progress-container">
-                            <div class="progress-header">
-                                <div class="spinner"></div>
-                                <span class="progress-title">正在研究...</span>
-                            </div>
                             <div class="progress-steps" id="progressSteps"></div>
                         </div>
                     </div>
@@ -1075,12 +1292,12 @@
 
             // Add or update current step
             if (!currentSteps[stage]) {
-                const stepInfo = PROGRESS_STEPS[stage] || { label: stage, icon: '•' };
+                const stepInfo = PROGRESS_STEPS[stage] || { label: stage, icon: '•', log: '' };
                 const stepHtml = `
                     <div class="progress-step active" id="step-${stage}">
                         <div class="step-icon"><div class="spinner"></div></div>
                         <span class="step-label">${message || stepInfo.label}</span>
-                        <span class="step-detail">${detail || ''}</span>
+                        <span class="step-detail">${detail || stepInfo.log || ''}</span>
                     </div>
                 `;
                 container.insertAdjacentHTML('beforeend', stepHtml);
@@ -1091,7 +1308,9 @@
                     const labelEl = stepEl.querySelector('.step-label');
                     const detailEl = stepEl.querySelector('.step-detail');
                     if (labelEl && message) labelEl.textContent = message;
-                    if (detailEl) detailEl.textContent = detail || '';
+                    if (detailEl) {
+                        detailEl.textContent = detail || PROGRESS_STEPS[stage]?.log || '';
+                    }
                 }
             }
 
@@ -1107,9 +1326,38 @@
         function addClarification(question, options) {
             hideWelcome();
             let responseHtml = '';
+            let cleanQuestion = question;
             
+            // 如果有选项，从问题文本中提取纯问题部分（去除嵌入的选项列表）
             if (options && options.length) {
-                // 有选项：显示选项列表
+                // 尝试提取问题的第一段（选项列表之前的部分）
+                // 常见模式：问题后跟换行，然后是选项列表
+                const lines = question.split('\n');
+                const questionLines = [];
+                let foundOptionList = false;
+                
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    // 检测是否是选项行（以数字、项目符号开头，或匹配选项内容）
+                    const isOptionLine = /^[\d]+[\.、\)）]/.test(trimmed) || 
+                                        /^[-•*]\s/.test(trimmed) ||
+                                        options.some(opt => trimmed.includes(opt.substring(0, Math.min(20, opt.length))));
+                    
+                    if (isOptionLine) {
+                        foundOptionList = true;
+                    }
+                    
+                    if (!foundOptionList) {
+                        questionLines.push(line);
+                    }
+                }
+                
+                // 如果提取到了纯问题部分，使用它；否则使用原问题
+                if (questionLines.length > 0 && questionLines.join('').trim()) {
+                    cleanQuestion = questionLines.join('\n').trim();
+                }
+                
+                // 渲染选项按钮
                 responseHtml = '<div class="options">' + options.map((opt, i) => {
                     const isOther = opt.includes('其他') || opt.includes('请说明') || opt.includes('Other');
                     const optNum = i + 1;
@@ -1136,50 +1384,32 @@
                         </div>
                     `;
                 }).join('') + '</div>';
-            } else {
-                // 无选项（开放式问题）：显示输入框
-                responseHtml = `
-                    <div class="open-input-container">
-                        <textarea class="open-input" id="openInput" 
-                            placeholder="请在此输入您的回答..."
-                            rows="2"
-                            onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();submitOpenAnswer();}"></textarea>
-                        <button class="open-submit" onclick="submitOpenAnswer()">
-                            <span>提交</span>
-                            <span class="submit-arrow">→</span>
-                        </button>
-                    </div>
-                `;
             }
+            // 无选项（开放式问题）：不显示输入框，让用户在底部输入框回答
 
             const html = `
                 <div class="message assistant">
                     <div class="avatar">D</div>
                     <div class="content">
-                        <div class="clarification-content">${renderMarkdown(question)}</div>
+                        <div class="clarification-content">${renderMarkdown(cleanQuestion)}</div>
                         ${responseHtml}
                     </div>
                 </div>
             `;
             document.getElementById('messages').insertAdjacentHTML('beforeend', html);
             
-            // 如果是开放式问题，自动聚焦输入框
+            // 如果是开放式问题，自动聚焦底部输入框
             if (!options || !options.length) {
                 setTimeout(() => {
-                    const input = document.getElementById('openInput');
-                    if (input) input.focus();
+                    const input = document.getElementById('input');
+                    if (input) {
+                        input.focus();
+                        input.placeholder = '请在此输入您的回答...';
+                    }
                 }, 100);
             }
             
             scrollBottom();
-        }
-
-        function submitOpenAnswer() {
-            const input = document.getElementById('openInput');
-            if (input && input.value.trim()) {
-                document.getElementById('input').value = input.value.trim();
-                send();
-            }
         }
 
         function toggleOtherInput(num) {
@@ -1266,6 +1496,7 @@
 
             input.value = '';
             input.style.height = 'auto';
+            input.placeholder = '输入研究问题...';  // 恢复默认 placeholder
             
             addUser(text);
             addLoading();

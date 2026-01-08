@@ -1,10 +1,12 @@
 # tools/serperapi.py
 import asyncio
+import aiohttp
 from functools import partial
 from serpapi import GoogleSearch
 
 import os
 from dotenv import load_dotenv
+from .http_pool import optimized_http_get
 
 load_dotenv()
 
@@ -26,15 +28,82 @@ def _search_sync(query: str, num_results: int = None) -> dict:
     return search.get_dict()
 
 
-async def web_search(query: str, num_results: int = None) -> str:
-    """异步包装，返回格式化的搜索结果"""
+async def web_search_optimized(query: str, num_results: int = None) -> str:
+    """使用连接池的优化搜索"""
+    import time
+    start_time = time.time()
+    
     num_results = num_results or DEFAULT_NUM_RESULTS
+    print(f"[DEBUG] SerpAPI optimized search starting: {query[:50]}...")
+    
+    # 使用SerpAPI的REST API而不是Python包，以便使用连接池
+    try:
+        api_start = time.time()
+        params = {
+            'q': query,
+            'api_key': SERPAPI_API_KEY,
+            'num': num_results,
+            'engine': 'google'
+        }
+        
+        url = "https://serpapi.com/search.json"
+        async with await optimized_http_get(url, params=params) as response:
+            result = await response.json()
+        
+        api_end = time.time()
+        print(f"[DEBUG] SerpAPI optimized call completed: {api_end - api_start:.2f}s")
+        
+    except Exception as e:
+        print(f"[WARN] Optimized search failed, falling back: {e}")
+        # Fallback to original method
+        return await web_search_fallback(query, num_results)
+    
+    format_start = time.time()
+    formatted = format_search_result(result, max_results=num_results)
+    format_end = time.time()
+    print(f"[DEBUG] Result formatting: {format_end - format_start:.2f}s")
+    
+    total_time = time.time() - start_time
+    print(f"[DEBUG] web_search_optimized TOTAL: {total_time:.2f}s for query: {query[:30]}...")
+    
+    return formatted
+
+
+async def web_search_fallback(query: str, num_results: int = None) -> str:
+    """Fallback异步搜索（原版本）"""
+    import time
+    start_time = time.time()
+    
+    num_results = num_results or DEFAULT_NUM_RESULTS
+    print(f"[DEBUG] SerpAPI fallback search starting: {query[:50]}...")
+    
     loop = asyncio.get_event_loop()
+    api_start = time.time()
     result = await loop.run_in_executor(
         None, 
         partial(_search_sync, query, num_results)
     )
-    return format_search_result(result, max_results=num_results)
+    api_end = time.time()
+    print(f"[DEBUG] SerpAPI fallback call completed: {api_end - api_start:.2f}s")
+    
+    format_start = time.time()
+    formatted = format_search_result(result, max_results=num_results)
+    format_end = time.time()
+    print(f"[DEBUG] Result formatting: {format_end - format_start:.2f}s")
+    
+    total_time = time.time() - start_time
+    print(f"[DEBUG] web_search_fallback TOTAL: {total_time:.2f}s for query: {query[:30]}...")
+    
+    return formatted
+
+
+async def web_search(query: str, num_results: int = None) -> str:
+    """智能选择搜索方法"""
+    # 优先使用优化版本，失败时自动降级
+    try:
+        return await web_search_optimized(query, num_results)
+    except Exception:
+        return await web_search_fallback(query, num_results)
 
 
 def truncate_text(text: str, max_chars: int) -> str:

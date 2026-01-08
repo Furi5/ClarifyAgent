@@ -2,373 +2,169 @@
 import json
 import re
 import logging
-from typing import Optional
-from agents import Agent, Runner
+from typing import Optional, List, Dict
 from agents.extensions.models.litellm_model import LitellmModel
 
-from .schema import Plan
+from .schema import Plan, Task
+from .universal_clarifier import (
+    UniversalClarifier,
+    ClarifyAction,
+    ClarifyResult,
+    create_clarifier_for_litellm,
+    DEEP_RESEARCH_ADDITIONS,
+)
 from .tools.serperapi import web_search
 
 logger = logging.getLogger(__name__)
 
 # 轻量搜索配置
-LIGHT_SEARCH_NUM_RESULTS = 3  # 轻量搜索返回结果数
-SEARCH_CONFIDENCE_MIN = 0.3   # 低于此值不搜索（太模糊）
-SEARCH_CONFIDENCE_MAX = 0.75  # 高于此值不搜索（已足够清晰）
+LIGHT_SEARCH_NUM_RESULTS = 3
+SEARCH_CONFIDENCE_MIN = 0.3
+SEARCH_CONFIDENCE_MAX = 0.75
 
 # 专业术语模式（用于判断是否需要搜索验证）
-# 通用模式，适用于各领域
 DOMAIN_TERM_PATTERNS = [
-    r'[A-Z]{2,}[\-]?[A-Z0-9]*',        # 缩写词：如 AI, API, GDP, ESG
-    r'[A-Z][a-z]+[A-Z][a-z]+',          # 驼峰式专有名词
-    r'[A-Z][a-z]+(?:\s[A-Z][a-z]+)+',   # 多词专有名词：如 Tesla Model
+    r'[A-Z]{2,}[\-]?[A-Z0-9]*',
+    r'[A-Z][a-z]+[A-Z][a-z]+',
+    r'[A-Z][a-z]+(?:\s[A-Z][a-z]+)+',
 ]
 
 
-CLARIFIER_SYSTEM_PROMPT = """\
-You are a clarification module for a Deep Research platform.
-You MUST output ONLY valid JSON (no markdown, no extra text).
-
-## Core Principle: Minimize User Friction
-
-**Ask as few questions as possible. One well-crafted question is better than five.**
-
-## CRITICAL: Understanding Conversation Context
-
-When processing user input, ALWAYS check:
-1. **conversation_summary** - Shows the original request and any follow-up answers
-2. **task_draft.pipeline_info** - Contains user-provided project/product details
-3. **task_draft.clarification_responses** - Previous Q&A pairs
-
-**Example flow:**
-- User first says: "评估我们的产品"
-- System asks: "请简单描述您的产品：名称、类型、目标市场是什么？"
-- User answers: "智能音箱，面向家庭用户"
-- NOW: conversation_summary will show this is a FOLLOW-UP answer
-- DO NOT ask more questions - user has provided the info, proceed to research!
-
-**If user has already provided project details, confidence should be HIGH (0.85+)**
-
-## Detecting Private vs Public Information
-
-**CRITICAL**: Distinguish between:
-1. **Public information**: Named entities that can be searched (companies, products, people, events)
-   → Can directly research with web search
-2. **Private information**: User's own project/product/data (e.g., "我们的产品", "我的项目", "公司的方案")
-   → Must ask user to provide details
-
-**Signals of private information:**
-- "我们的", "我的", "公司的", "团队的"
-- "我有一个", "我们开发的", "自研的"
-- "our", "my", "we have"
-
-## Clarification Strategy
-
-### For Private Information → Use ONE Open-Ended Question
-
-When user mentions their own project/product, ask ONE comprehensive question to gather key details:
-
-```json
-{
-    "clarification": {
-        "question": "请简单描述您的项目/产品：具体是什么？目前处于什么阶段？主要目标是什么？",
-        "options": [],
-        "missing_info": "project_details",
-        "open_ended": true
-    }
-}
-```
-
-**DO NOT** ask multiple rounds. **DO** ask once with all key questions.
-
-### For Public Information → Smart Defaults
-
-If topic is clear and searchable, **don't ask** unnecessary questions.
-Assume comprehensive research and directly start.
-
-Only clarify if truly ambiguous (e.g., "帮我研究一下" with no context).
-
-### For Ambiguous Requests → Maximum 3 Options
-
-If must provide options, limit to 3:
-```json
-{
-    "options": [
-        "选项1（最可能的意图）",
-        "选项2（次可能的意图）", 
-        "其他（请说明）"
-    ]
-}
-```
-
-## Decision Logic
-
-1. **Private info detected + missing details** → NEED_CLARIFICATION (open-ended)
-2. **Public info + clear topic** (confidence >= 0.7) → START_RESEARCH or CONFIRM_PLAN
-3. **Completely vague** (confidence < 0.5) → NEED_CLARIFICATION (max 3 options)
-4. **Unknown term** → VERIFY_TOPIC
-
-## Assessment Criteria
-
-1. **Topic clarity** (0.0-0.4):
-   - Specific named entity → +0.4
-   - General category → +0.2
-   - Vague/missing → +0.0
-
-2. **Scope inferability** (0.0-0.3):
-   - Can infer comprehensive research areas → +0.3
-   - Partial inference → +0.15
-
-3. **Goal clarity** (0.0-0.3):
-   - Clear goal stated → +0.3
-   - Implied goal → +0.2
-   - No goal (assume comprehensive) → +0.1
-
-## Examples
-
-### Example 1: Private Information (Open-Ended)
-Input: "评估我们的新产品市场前景"
-Assessment: Private info (我们的), need product details
-→ NEED_CLARIFICATION
-```json
-{
-    "next_action": "NEED_CLARIFICATION",
-    "confidence": 0.3,
-    "why": "用户提到'我们的'产品，需要了解具体信息",
-    "clarification": {
-        "question": "请简单描述您的产品：是什么类型的产品？目标用户群体是谁？主要功能或特点是什么？",
-        "options": [],
-        "missing_info": "project_details",
-        "open_ended": true
-    }
-}
-```
-
-### Example 2: Public Information (Direct Start)
-Input: "特斯拉 2024 年销量分析"
-Assessment: Clear public topic, can infer research scope
-→ START_RESEARCH (confidence 0.85+)
-
-### Example 3: Ambiguous (Minimal Options)
-Input: "帮我研究一下市场"
-Assessment: Too broad, need to narrow down
-→ NEED_CLARIFICATION
-```json
-{
-    "clarification": {
-        "question": "您想研究哪个市场？",
-        "options": [
-            "特定行业市场（如新能源、AI、医疗等）",
-            "特定地区市场（如中国、美国、东南亚等）",
-            "其他（请说明具体市场）"
-        ],
-        "missing_info": "research_scope"
-    }
-}
-```
-
-### Example 4: User Provides Details After Open Question
-Previous: Asked for project details
-Input: "智能家居产品，面向年轻家庭，主打语音控制"
-Assessment: All key info provided
-→ START_RESEARCH (confidence 0.9)
-
-## Output Format
-
-{
-    "next_action": "START_RESEARCH|NEED_CLARIFICATION|CONFIRM_PLAN|VERIFY_TOPIC",
-    "task": {
-        "goal": "Research goal",
-        "research_focus": ["focus 1", "focus 2", ...]
-    },
-    "confidence": 0.0-1.0,
-    "why": "Brief reason",
-    "clarification": {
-        "question": "Question text",
-        "options": ["opt1", "opt2", "opt3"],  // Max 3, or empty for open-ended
-        "missing_info": "project_details|research_scope|research_topic",
-        "open_ended": true|false  // True = no options, user types freely
-    },
-    "assumptions": ["assumption 1", ...],
-    "confirm_prompt": "Confirmation prompt"
-}
-"""
-
-
-def build_clarifier(model: LitellmModel) -> Agent:
-    """Build the clarifier agent."""
-    return Agent(
-        name="Clarifier",
-        model=model,
-        instructions=CLARIFIER_SYSTEM_PROMPT,
-        tools=[]  # Clarifier doesn't use tools
-    )
-
-
 def extract_domain_terms(text: str) -> list[str]:
-    """
-    从文本中提取专业术语（用于判断是否需要搜索验证）。
-    
-    Args:
-        text: 用户输入文本
-    
-    Returns:
-        提取的专业术语列表
-    """
+    """从文本中提取专业术语"""
     terms = set()
     for pattern in DOMAIN_TERM_PATTERNS:
         matches = re.findall(pattern, text, re.IGNORECASE)
         terms.update(m.strip() for m in matches if len(m.strip()) >= 2)
     
-    # 过滤常见词
     common_words = {'AI', 'OK', 'API', 'US', 'UK', 'EU', 'IT', 'ID'}
     terms = [t for t in terms if t.upper() not in common_words]
     
-    return list(terms)[:5]  # 最多返回5个
-
-
-def build_search_query(user_input: str, terms: list[str]) -> str:
-    """
-    构建轻量搜索的查询语句。
-    
-    Args:
-        user_input: 用户原始输入
-        terms: 提取的专业术语
-    
-    Returns:
-        搜索查询语句
-    """
-    if terms:
-        # 使用专业术语构建查询
-        main_term = terms[0]
-        return f"{main_term} drug research indications mechanism"
-    else:
-        # 提取用户输入中的核心词
-        # 去掉常见请求词
-        cleaned = re.sub(r'(帮我|请|搜集|研究|分析|了解|查找|找)', '', user_input)
-        cleaned = cleaned.strip()[:50]  # 限制长度
-        if cleaned:
-            return f"{cleaned} research overview"
-    return ""
+    return list(terms)[:5]
 
 
 async def pre_clarification_search(
     user_input: str,
     terms: list[str],
     num_results: int = LIGHT_SEARCH_NUM_RESULTS
-) -> Optional[dict]:
-    """
-    澄清前的轻量搜索，获取背景信息。
-    
-    Args:
-        user_input: 用户输入
-        terms: 专业术语列表
-        num_results: 搜索结果数量
-    
-    Returns:
-        搜索结果字典，包含 domain_context 和 verified_terms
-    """
-    query = build_search_query(user_input, terms)
-    if not query:
+) -> Optional[Dict]:
+    """执行澄清前的轻量搜索"""
+    if not terms:
         return None
     
     try:
-        logger.info(f"🔍 轻量搜索: {query}")
-        search_result = await web_search(query, num_results=num_results)
+        main_term = terms[0]
+        query = f"{main_term} research overview"
         
-        return {
-            "query": query,
-            "domain_context": search_result,
-            "verified_terms": terms,
-            "has_results": bool(search_result and "未找到" not in search_result)
-        }
+        # 使用原始搜索函数获取结构化数据
+        from .tools.serperapi import _search_sync
+        import asyncio
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(None, _search_sync, query, num_results)
+        
+        if results and results.get("organic_results"):
+            organic = results["organic_results"]
+            verified_terms = [
+                t for t in terms 
+                if any(t.lower() in r.get("title", "").lower() or t.lower() in r.get("snippet", "").lower() 
+                       for r in organic)
+            ]
+            return {
+                "query": query,
+                "results": organic[:num_results],
+                "verified_terms": verified_terms,
+            }
     except Exception as e:
-        logger.warning(f"轻量搜索失败: {e}")
-        return None
+        logger.warning(f"Pre-search failed: {e}")
+    
+    return None
 
 
-def should_do_pre_search(user_input: str, task_draft: dict) -> bool:
-    """
-    判断是否需要进行澄清前搜索。
-    
-    Args:
-        user_input: 用户输入
-        task_draft: 当前任务草稿
-    
-    Returns:
-        True 如果需要搜索
-    """
-    # 如果任务草稿已有明确目标，不需要搜索
-    if task_draft and task_draft.get("goal") and task_draft.get("research_focus"):
+def should_do_pre_search(user_input: str, task_draft: Dict) -> bool:
+    """判断是否需要预搜索"""
+    if not user_input or len(user_input) < 10:
         return False
     
-    # 检查是否包含专业术语
+    # 如果任务草稿已经很完善，不需要搜索
+    if task_draft.get("goal") and task_draft.get("research_focus"):
+        return False
+    
     terms = extract_domain_terms(user_input)
-    if terms:
-        return True
-    
-    # 检查输入长度 - 太短不搜索
-    if len(user_input.strip()) < 10:
-        return False
-    
-    # 包含研究相关关键词
-    research_keywords = ['研究', '调研', '分析', '机制', '靶点', '药物', '临床', '市场', '竞争']
-    if any(kw in user_input for kw in research_keywords):
-        return True
-    
-    return False
+    return len(terms) > 0
 
 
-def _extract_json(s: str) -> dict:
-    """Extract JSON from agent output."""
-    s = (s or "").strip()
-    if s.startswith("{") and s.endswith("}"):
-        return json.loads(s)
-    a, b = s.find("{"), s.rfind("}")
-    if a != -1 and b != -1 and b > a:
-        return json.loads(s[a:b+1])
-    raise ValueError(f"Clarifier did not return JSON: {s[:200]}")
-
-
-def should_clarify(plan: Plan) -> bool:
-    """
-    Determine if clarification is needed based on plan.
+def _convert_to_plan(result: ClarifyResult, task_draft: Dict) -> Plan:
+    """将 UniversalClarifier 的结果转换为 Plan 格式"""
     
-    Args:
-        plan: Plan from clarifier
+    # 映射 action
+    action_map = {
+        ClarifyAction.PROCEED: "START_RESEARCH",
+        ClarifyAction.NEED_CLARIFICATION: "NEED_CLARIFICATION",
+        ClarifyAction.CONFIRM: "CONFIRM_PLAN",
+        ClarifyAction.REJECT: "CANNOT_DO",
+    }
+    next_action = action_map.get(result.action, "NEED_CLARIFICATION")
     
-    Returns:
-        True if clarification is needed
-    """
-    # Hard boundary: must clarify
-    if plan.confidence < 0.6:
-        return True
+    # 构建 task - 正确组合用户意图
+    parsed_intent = result.parsed_intent
+    subject = parsed_intent.get("subject", "")
+    action = parsed_intent.get("action", "")
+    output_format = parsed_intent.get("output_format", "")
     
-    # Soft boundary: missing key info
-    if 0.6 <= plan.confidence < 0.7:
-        # Check if research_focus is missing or too few
-        if not plan.task.research_focus or len(plan.task.research_focus) < 2:
-            return True
+    # 构建完整的研究目标：主体 + 动作 + 输出格式
+    goal_parts = []
+    if subject:
+        goal_parts.append(subject)
+    if action:
+        goal_parts.append(action)
+    if output_format and output_format not in action:
+        goal_parts.append(f"({output_format})")
     
-    return False
-
-
-def should_start_research(plan: Plan) -> bool:
-    """
-    Determine if research can start directly.
+    goal = " - ".join(goal_parts) if goal_parts else task_draft.get("goal", "研究任务")
     
-    Args:
-        plan: Plan from clarifier
+    # 从 parsed_intent 提取 research_focus
+    # 优先使用 output_format 和 action 作为研究重点，而不是 constraints
+    research_focus = task_draft.get("research_focus", [])
+    if not research_focus:
+        # 提取用户关心的核心问题作为研究重点
+        focus_candidates = []
+        if output_format:
+            focus_candidates.append(output_format)
+        if action and action not in str(focus_candidates):
+            focus_candidates.append(action)
+        if parsed_intent.get("constraints"):
+            # constraints 作为补充信息，如适应症、市场等
+            focus_candidates.extend(parsed_intent.get("constraints", []))
+        research_focus = focus_candidates if focus_candidates else ["综合研究"]
     
-    Returns:
-        True if can start research directly
-    """
-    return (
-        plan.confidence >= 0.85 and
-        plan.task.goal and
-        len(plan.task.research_focus) >= 3 and
-        plan.next_action != "VERIFY_TOPIC"
+    task = Task(
+        goal=goal,
+        research_focus=research_focus[:5] if research_focus else ["综合研究"],
     )
+    
+    # 构建 clarification
+    clarification = None
+    if result.questions:
+        first_q = result.questions[0]
+        clarification = {
+            "question": first_q.question,
+            "options": first_q.options,
+            "missing_info": first_q.dimension or "project_details",
+            "open_ended": len(first_q.options) == 0,
+        }
+    
+    # 构建 Plan
+    plan = Plan(
+        next_action=next_action,
+        task=task,
+        confidence=result.confidence,
+        why=result.reason,
+        assumptions=result.assumptions,
+        clarification=clarification,
+        confirm_prompt=result.confirm_message if result.action == ClarifyAction.CONFIRM else None,
+    )
+    
+    return plan
 
 
 async def assess_input(
@@ -378,90 +174,223 @@ async def assess_input(
     enable_pre_search: bool = True
 ) -> Plan:
     """
-    Assess user input and determine if clarification is needed.
+    评估用户输入并决定是否需要澄清（向后兼容接口）
     
     Args:
-        model: LLM model for clarification
-        messages: Conversation history
-        task_draft: Current task draft
-        enable_pre_search: Whether to enable pre-clarification search
+        model: LLM 模型
+        messages: 对话历史
+        task_draft: 任务草稿
+        enable_pre_search: 是否启用预搜索
     
     Returns:
-        Plan with next_action and assessment
+        Plan 对象
     """
-    clarifier = build_clarifier(model)
+    # #region agent log
+    import json as json_lib
+    import os
+    log_path = "/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json_lib.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A",
+                "location": "clarifier.py:157",
+                "message": "assess_input entry",
+                "data": {
+                    "messages_count": len(messages),
+                    "task_draft_keys": list(task_draft.keys()),
+                    "task_draft_goal": task_draft.get("goal", ""),
+                    "task_draft_project_info": task_draft.get("project_info", ""),
+                    "task_draft_pipeline_info": task_draft.get("pipeline_info", ""),
+                },
+                "timestamp": int(__import__("time").time() * 1000)
+            }, ensure_ascii=False) + "\n")
+    except: pass
+    # #endregion
     
-    # Build context from messages
-    context = ""
+    # 创建通用澄清器（Deep Research 特化）
+    async def llm_call(prompt: str, system: str) -> str:
+        import litellm
+        response = await litellm.acompletion(
+            model=model.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+        )
+        return response.choices[0].message.content
+    
+    clarifier = UniversalClarifier(
+        llm_call=llm_call,
+        confidence_threshold=0.75,
+        max_questions=1,  # Deep Research 一次只问一个问题
+        custom_prompt_additions=DEEP_RESEARCH_ADDITIONS,
+    )
+    
+    # 获取用户输入
     user_input = ""
-    conversation_summary = ""
-    if messages:
-        # Get last few messages for context
-        recent_messages = messages[-5:] if len(messages) > 5 else messages
-        context = "\n".join([
-            f"{msg.get('role', 'user')}: {msg.get('content', '')}"
-            for msg in recent_messages
-        ])
-        # Get latest user input
-        for msg in reversed(messages):
-            if msg.get('role') == 'user':
-                user_input = msg.get('content', '')
-                break
-        
-        # 构建对话摘要，帮助 LLM 理解上下文
-        user_msgs = [m for m in messages if m.get('role') == 'user']
-        if len(user_msgs) >= 2:
-            first_msg = user_msgs[0].get('content', '')
-            conversation_summary = f"用户最初请求: {first_msg}"
-            if task_draft.get('project_info'):
-                conversation_summary += f"\n用户补充的项目信息: {task_draft['project_info']}"
-            elif task_draft.get('pipeline_info'):  # 兼容旧字段
-                conversation_summary += f"\n用户补充的项目信息: {task_draft['pipeline_info']}"
-            if task_draft.get('clarification_responses'):
-                for resp in task_draft['clarification_responses']:
-                    conversation_summary += f"\n问: {resp.get('question', '')}\n答: {resp.get('answer', '')}"
+    conversation_history = []
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        conversation_history.append({"role": role, "content": content})
+        if role == "user":
+            user_input = content
     
-    # Pre-clarification search (if enabled and appropriate)
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json_lib.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "B",
+                "location": "clarifier.py:195",
+                "message": "conversation_history extracted",
+                "data": {
+                    "user_input": user_input,
+                    "history_length": len(conversation_history),
+                    "history_last_3": conversation_history[-3:] if len(conversation_history) >= 3 else conversation_history,
+                },
+                "timestamp": int(__import__("time").time() * 1000)
+            }, ensure_ascii=False) + "\n")
+    except: pass
+    # #endregion
+    
+    # 预搜索（临时禁用以提升性能）
     search_context = None
-    if enable_pre_search and user_input and should_do_pre_search(user_input, task_draft):
+    if False and enable_pre_search and user_input and should_do_pre_search(user_input, task_draft):
         terms = extract_domain_terms(user_input)
         search_context = await pre_clarification_search(user_input, terms)
         if search_context:
             logger.info(f"✅ 轻量搜索完成，发现术语: {search_context.get('verified_terms', [])}")
+        else:
+            print(f"[DEBUG] Pre-search disabled for performance optimization")
     
-    payload = {
-        "messages": messages,
-        "task_draft": task_draft or {},
-        "context": context,
-        "conversation_summary": conversation_summary,  # 对话脉络摘要
-        "search_context": search_context,  # 添加搜索上下文
-        "schema_hint": {
-            "next_action": "START_RESEARCH|NEED_CLARIFICATION|CONFIRM_PLAN|VERIFY_TOPIC",
-            "task": {
-                "goal": "string",
-                "research_focus": ["string"]  # At least 3 for START_RESEARCH
-            },
-            "confidence": "0.0-1.0",
-            "why": "string",
-            "clarification": {
-                "question": "string",
-                "options": ["string"],
-                "missing_info": "research_topic|research_focus|research_goal"
-            },
-            "assumptions": ["string"],
-            "confirm_prompt": "string"
-        }
+    # 构建额外上下文
+    additional_context = {
+        "task_draft": task_draft,
+        "search_context": search_context,
     }
     
-    result = await Runner.run(clarifier, json.dumps(payload, ensure_ascii=False))
-    data = _extract_json(result.final_output or "")
-    plan = Plan.model_validate(data)
+    # 构建对话摘要
+    conversation_summary = ""
+    if len(conversation_history) >= 2:
+        first_user_msg = next((m for m in conversation_history if m.get("role") == "user"), None)
+        if first_user_msg:
+            conversation_summary = f"用户最初请求: {first_user_msg.get('content', '')}"
+        
+        # 检查是否有澄清问题的回答
+        if task_draft.get("project_info"):
+            conversation_summary += f"\n\n【重要】用户已补充项目信息: {task_draft['project_info']}"
+            conversation_summary += "\n这表示用户已经回答了澄清问题，请基于这些信息继续处理，不要再次询问相同的问题。"
+        elif task_draft.get("pipeline_info"):  # 兼容旧字段
+            conversation_summary += f"\n\n【重要】用户已补充项目信息: {task_draft['pipeline_info']}"
+            conversation_summary += "\n这表示用户已经回答了澄清问题，请基于这些信息继续处理，不要再次询问相同的问题。"
+        
+        if task_draft.get("clarification_responses"):
+            conversation_summary += "\n\n澄清问答历史："
+            for resp in task_draft["clarification_responses"]:
+                conversation_summary += f"\n问: {resp.get('question', '')}\n答: {resp.get('answer', '')}"
+        
+        # 检查最新的对话，看是否有澄清问答
+        assistant_msgs = [m for m in conversation_history if m.get("role") == "assistant"]
+        user_msgs = [m for m in conversation_history if m.get("role") == "user"]
+        if len(assistant_msgs) >= 1 and len(user_msgs) >= 2:
+            last_assistant = assistant_msgs[-1].get("content", "")
+            last_user = user_msgs[-1].get("content", "")
+            # 如果最后一条 assistant 消息包含"请描述"或"请提供"，且用户有回复，说明用户已回答
+            if ("请描述" in last_assistant or "请提供" in last_assistant or "请简单" in last_assistant) and last_user:
+                conversation_summary += f"\n\n【最新澄清问答】\n系统问: {last_assistant[:100]}...\n用户答: {last_user}"
+                conversation_summary += "\n用户已经回答了澄清问题，请基于用户的回答继续处理。"
     
-    # Post-process: enforce decision logic
-    if should_clarify(plan) and plan.next_action not in ["NEED_CLARIFICATION", "VERIFY_TOPIC"]:
+    if conversation_summary:
+        additional_context["conversation_summary"] = conversation_summary
+    
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json_lib.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "C",
+                "location": "clarifier.py:230",
+                "message": "before clarifier.assess",
+                "data": {
+                    "conversation_summary": conversation_summary,
+                    "additional_context_keys": list(additional_context.keys()),
+                    "task_draft_in_context": additional_context.get("task_draft", {}),
+                },
+                "timestamp": int(__import__("time").time() * 1000)
+            }, ensure_ascii=False) + "\n")
+    except: pass
+    # #endregion
+    
+    # 调用通用澄清器
+    result = await clarifier.assess(
+        user_input=user_input,
+        conversation_history=conversation_history,
+        additional_context=additional_context,
+    )
+    
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json_lib.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "D",
+                "location": "clarifier.py:245",
+                "message": "after clarifier.assess",
+                "data": {
+                    "result_action": str(result.action),
+                    "result_confidence": result.confidence,
+                    "result_reason": result.reason,
+                    "result_parsed_intent": result.parsed_intent,
+                    "result_questions_count": len(result.questions),
+                    "result_questions": [q.question for q in result.questions],
+                },
+                "timestamp": int(__import__("time").time() * 1000)
+            }, ensure_ascii=False) + "\n")
+    except: pass
+    # #endregion
+    
+    # 转换为 Plan 格式
+    plan = _convert_to_plan(result, task_draft)
+    
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json_lib.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "E",
+                "location": "clarifier.py:260",
+                "message": "plan converted",
+                "data": {
+                    "plan_next_action": plan.next_action,
+                    "plan_confidence": plan.confidence,
+                    "plan_task_goal": plan.task.goal,
+                    "plan_clarification": plan.clarification,
+                },
+                "timestamp": int(__import__("time").time() * 1000)
+            }, ensure_ascii=False) + "\n")
+    except: pass
+    # #endregion
+    
+    # 后处理：强制执行决策规则
+    if result.action == ClarifyAction.PROCEED and plan.confidence >= 0.85:
+        plan.next_action = "START_RESEARCH"
+    elif result.action == ClarifyAction.CONFIRM and plan.confidence >= 0.7:
+        plan.next_action = "CONFIRM_PLAN"
+    elif result.action == ClarifyAction.NEED_CLARIFICATION:
         plan.next_action = "NEED_CLARIFICATION"
     
-    if should_start_research(plan) and plan.next_action == "CONFIRM_PLAN":
-        plan.next_action = "START_RESEARCH"
-    
     return plan
+
+
+def build_clarifier(model: LitellmModel):
+    """构建澄清器（向后兼容，实际不再使用）"""
+    # 这个函数保留是为了向后兼容，实际逻辑在 assess_input 中
+    return None

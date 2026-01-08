@@ -29,59 +29,116 @@ def truncate_tool_output(text: str, max_chars: int = None) -> str:
 
 # Wrap tools as function_tool for Agent
 @function_tool
-async def web_search_tool(ctx: RunContextWrapper[Any], query: str) -> str:
+async def enhanced_research_tool(ctx: RunContextWrapper[Any], query: str) -> str:
     """
-    Search the web. Returns top 3 results with snippets.
+    Enhanced research combining fast Serper search with intelligent Jina deep reading.
     
-    TIPS:
-    - Snippets usually contain the key info you need
-    - Only use read_url if snippet is unclear
+    CAPABILITIES:
+    - Fast web search for broad information coverage
+    - Intelligent scenario detection (synthesis routes, pipeline evaluation, clinical research)
+    - Selective deep reading of high-value sources (academic papers, patents, regulatory docs)
+    - Scenario-driven information extraction
+    
+    IMPORTANT: 
+    - Returns comprehensive analysis with both broad and deep insights
+    - Automatically selects best research strategy based on query type
+    - Provides source reliability indicators and confidence scores
+    - Return your analysis immediately after this single enhanced search
     """
-    from ..tools.serperapi import web_search
-    result = await web_search(query, MAX_SEARCH_RESULTS)
-    return truncate_tool_output(result)
-
+    import time
+    tool_start = time.time()
+    print(f"[DEBUG] Enhanced research tool called with query: {query[:50]}...")
+    
+    try:
+        from ..tools.enhanced_research import enhanced_web_search_with_jina
+        result = await enhanced_web_search_with_jina(query, MAX_SEARCH_RESULTS)
+        truncated = truncate_tool_output(result)
+        
+        tool_end = time.time()
+        print(f"[DEBUG] Enhanced research completed: {tool_end - tool_start:.2f}s, output length: {len(truncated)}")
+        
+        return truncated
+    except Exception as e:
+        print(f"[ERROR] Enhanced research failed, falling back to basic search: {e}")
+        # Fallback to basic search
+        from ..tools.serperapi import web_search
+        result = await web_search(query, MAX_SEARCH_RESULTS)
+        truncated = truncate_tool_output(result)
+        
+        tool_end = time.time()
+        print(f"[DEBUG] Fallback search completed: {tool_end - tool_start:.2f}s")
+        
+        return truncated
 
 @function_tool
-async def read_url_tool(ctx: RunContextWrapper[Any], url: str) -> str:
+async def web_search_tool(ctx: RunContextWrapper[Any], query: str) -> str:
     """
-    Read a URL. Use ONLY if search snippets are insufficient.
+    Basic web search tool (kept for compatibility/fallback).
+    """
+    import time
+    tool_start = time.time()
+    print(f"[DEBUG] Basic web search tool called: {query[:50]}...")
     
-    Returns cleaned, summarized content (not full page).
-    """
-    from ..tools.scraper import smart_scrape
-    result = await smart_scrape(url, max_chars=MAX_TOOL_OUTPUT)
-    if result["success"]:
-        return f"**{result['title']}**\n\n{result['content']}"
-    else:
-        return f"Failed to read URL: {result['error']}"
+    from ..tools.serperapi import web_search
+    result = await web_search(query, MAX_SEARCH_RESULTS)
+    truncated = truncate_tool_output(result)
+    
+    tool_end = time.time()
+    print(f"[DEBUG] Basic search completed: {tool_end - tool_start:.2f}s")
+    
+    return truncated
 
 
-# 更精简的指令
+# read_url_tool 已移除 - 只使用搜索工具以提升性能
+
+
+# 增强单次研究的指令
 SUBAGENT_INSTRUCTIONS = """\
-You are a focused research agent. Your goal: answer ONE specific question efficiently.
+You are an ENHANCED SINGLE-RESEARCH agent with intelligent research capabilities.
 
-## STRICT RULES
-1. MAX 1-2 tool calls total
-2. Prefer search snippets over reading URLs
-3. Only read URL if snippet lacks critical info
+## AVAILABLE TOOLS
+- enhanced_research_tool: Intelligent research combining fast search + selective deep reading
+- web_search_tool: Basic search (fallback only)
 
-## YOUR TASK
+## CRITICAL CONSTRAINTS
+- YOU CAN ONLY CALL enhanced_research_tool EXACTLY ONCE
+- NO second searches, NO follow-up calls, NO exceptions
+- The enhanced tool will automatically detect your research scenario and use optimal strategy
+
+## TASK
 Research: {focus}
-Queries to try: {queries}
+Use ONE of these queries: {queries}
+
+## WORKFLOW
+1. Pick the BEST query from the list
+2. Call enhanced_research_tool ONCE (it will auto-select Serper + selective Jina reading)
+3. Extract facts from the comprehensive results
+4. Return complete JSON immediately
+
+## ENHANCED RESEARCH CAPABILITIES
+The enhanced tool will:
+- Detect research scenario (synthesis routes, pipeline evaluation, clinical research, etc.)
+- Perform fast broad search for context
+- Intelligently select 2-3 high-value sources for deep reading
+- Extract scenario-specific insights
+- Provide confidence scores
 
 ## OUTPUT (JSON only)
 {{
-    "focus": "the question you researched",
-    "key_findings": ["fact 1", "fact 2", "fact 3"],
-    "sources": [{{"title": "...", "url": "...", "snippet": "key quote"}}],
+    "focus": "{focus}",
+    "key_findings": ["detailed fact 1", "technical detail 2", "strategic insight 3"],
+    "sources": [{{"title": "title", "url": "url", "snippet": "detailed quote"}}],
     "confidence": 0.8
 }}
 
-## EFFICIENCY
-- Search snippets often have the answer - check them first!
-- One precise query > multiple vague queries
-- Stop once you have enough facts (3-5 findings is enough)
+## EXTRACTION RULES
+- Prioritize detailed, technical information from deep-read sources
+- Include both broad context and specific details
+- Each finding = one complete, actionable insight
+- Sources should include both search results and enhanced content
+- Higher confidence for scenarios with deep technical content
+
+REMEMBER: ONE enhanced research call gives you both breadth AND depth.
 """
 
 
@@ -99,7 +156,7 @@ class Subagent:
         self.base_agent = None
     
     def _create_agent(self, focus: str, queries: List[str]) -> Agent:
-        """Create agent with task-specific instructions."""
+        """Create agent with task-specific instructions using fast model."""
         # #region agent log
         import json as json_mod
         with open('/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log', 'a') as f:
@@ -120,11 +177,17 @@ class Subagent:
                 f.write(json_mod.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'H1', 'location': 'subagent.py:115', 'message': 'Format failed with KeyError', 'data': {'error': str(e), 'error_key': e.args[0] if e.args else None}, 'timestamp': __import__('time').time() * 1000}) + '\n')
             # #endregion
             raise
+            
+        # Use fast model for tool calling efficiency
+        from ..agent import build_model
+        fast_model = build_model("fast")
+        print(f"[DEBUG] Subagent-{self.agent_id} using fast model for tool calls")
+        
         return Agent(
             name=f"Subagent-{self.agent_id}",
-            model=self.model,
+            model=fast_model,  # 使用快速模型
             instructions=instructions,
-            tools=[web_search_tool, read_url_tool]
+            tools=[enhanced_research_tool, web_search_tool]  # 增强研究工具 + 基础搜索作为fallback
         )
     
     def _extract_json(self, s: str) -> dict:
@@ -139,21 +202,52 @@ class Subagent:
     
     async def search(self, subtask: Subtask) -> SubtaskResult:
         """Execute search for a subtask."""
+        import time
+        start_time = time.time()
+        
         # Create agent with specific instructions
+        agent_start = time.time()
         agent = self._create_agent(subtask.focus, subtask.queries)
+        agent_end = time.time()
+        print(f"[DEBUG] Subagent-{self.agent_id} Agent creation: {agent_end - agent_start:.2f}s")
         
         # Simple input prompt
         input_prompt = f"Research: {subtask.focus}\nSuggested queries: {', '.join(subtask.queries)}"
         
         try:
-            # Run the agent
+            # Run the agent with detailed logging
+            runner_start = time.time()
+            print(f"[DEBUG] Subagent-{self.agent_id} Starting Runner.run for: {subtask.focus[:50]}...")
+            print(f"[DEBUG] Subagent-{self.agent_id} Agent model: {agent.model.model}")
+            print(f"[DEBUG] Subagent-{self.agent_id} Input prompt length: {len(input_prompt)}")
+            
+            # Monitor Runner.run with progress tracking
             result = await Runner.run(agent, input_prompt)
+            
+            runner_end = time.time()
+            print(f"[DEBUG] Subagent-{self.agent_id} Runner.run completed: {runner_end - runner_start:.2f}s")
+            
+            # Check if result contains run steps for detailed analysis
+            if hasattr(result, 'run_result') and hasattr(result.run_result, 'run_steps'):
+                steps = result.run_result.run_steps
+                print(f"[DEBUG] Subagent-{self.agent_id} Total steps: {len(steps)}")
+                for i, step in enumerate(steps):
+                    if hasattr(step, 'step_type'):
+                        print(f"[DEBUG] Subagent-{self.agent_id} Step {i}: {step.step_type}")
+            
+            output_length = len(result.final_output or "")
+            print(f"[DEBUG] Subagent-{self.agent_id} Output length: {output_length} chars")
+            
             output = result.final_output or ""
             
             # Parse the result
+            parse_start = time.time()
             data = self._extract_json(output)
+            parse_end = time.time()
+            print(f"[DEBUG] Subagent-{self.agent_id} JSON parsing: {parse_end - parse_start:.2f}s")
             
             # Convert sources to Source objects
+            process_start = time.time()
             sources = []
             for src in data.get("sources", [])[:3]:  # 最多3个source
                 snippet = src.get("snippet", "")
@@ -172,6 +266,11 @@ class Subagent:
                 if len(f) > 300:
                     f = f[:300] + "..."
                 findings.append(f)
+            process_end = time.time()
+            print(f"[DEBUG] Subagent-{self.agent_id} Data processing: {process_end - process_start:.2f}s")
+            
+            total_time = time.time() - start_time
+            print(f"[DEBUG] Subagent-{self.agent_id} TOTAL TIME: {total_time:.2f}s")
             
             return SubtaskResult(
                 subtask_id=subtask.id,
@@ -182,7 +281,8 @@ class Subagent:
             )
         except Exception as e:
             # Fallback if anything fails
-            print(f"[Subagent-{self.agent_id}] Error: {e}")
+            total_time = time.time() - start_time
+            print(f"[ERROR] Subagent-{self.agent_id} Failed after {total_time:.2f}s: {e}")
             return SubtaskResult(
                 subtask_id=subtask.id,
                 focus=subtask.focus,

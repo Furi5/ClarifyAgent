@@ -12,7 +12,7 @@ import logging
 from .agent import build_model
 from .config import MAX_PARALLEL_SUBAGENTS
 from .orchestrator import Orchestrator
-from .dialog import SessionState, add_user, add_assistant, update_task_draft
+from .dialog import SessionState, add_user, add_assistant, update_task_draft, save_research_result, is_simple_followup, is_new_research_task, start_new_research_session
 from .schema import ResearchResult
 
 logging.basicConfig(level=logging.INFO)
@@ -357,9 +357,50 @@ async def clear_session(session_id: str):
 
 async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str, None]:
     """Generate SSE events for streaming responses."""
+    # #region agent log
+    import json as json_lib
+    log_path = "/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json_lib.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "SESSION_ENTRY",
+                "location": "web.py:stream_generator_entry",
+                "message": "stream_generator entry - checking session_id",
+                "data": {
+                    "incoming_session_id": session_id,
+                    "message_preview": message[:100] if message else "",
+                    "sessions_keys": list(sessions.keys()),
+                },
+                "timestamp": int(__import__("time").time() * 1000)
+            }, ensure_ascii=False) + "\n")
+    except: pass
+    # #endregion
+    
     session_id, session = get_or_create_session(session_id if session_id != "new" else None)
     state = session["state"]
     pending_plan = session["pending_plan"]
+    
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json_lib.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "SESSION_AFTER",
+                "location": "web.py:stream_generator_after_session",
+                "message": "session retrieved/created",
+                "data": {
+                    "final_session_id": session_id,
+                    "messages_count": len(state.messages),
+                    "task_draft_keys": list(state.task_draft.keys()),
+                    "has_pending_plan": pending_plan is not None,
+                },
+                "timestamp": int(__import__("time").time() * 1000)
+            }, ensure_ascii=False) + "\n")
+    except: pass
+    # #endregion
     
     # Send session ID first
     yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
@@ -369,6 +410,31 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
         if not user_message:
             yield f"data: {json.dumps({'type': 'error', 'message': 'Message cannot be empty'})}\n\n"
             return
+        
+        # 检查是否是新的调研任务（在chat模式下）
+        if state.conversation_mode == "chat" and is_new_research_task(user_message, state):
+            print(f"[DEBUG] Detected new research task in chat mode, starting new research session")
+            start_new_research_session(state)
+            # 给用户一个提示，表明开始新的研究
+            yield f"data: {json.dumps({'type': 'progress', 'stage': 'new_research', 'message': '开始新的调研任务', 'detail': f'检测到新调研需求，已保存之前的研究结果'})}\n\n"
+            await asyncio.sleep(0.1)
+            # 继续执行完整研究流程
+        
+        # 检查是否是简单后续对话
+        elif is_simple_followup(user_message, state):
+            print(f"[DEBUG] Detected simple followup, using chat mode")
+            add_user(state, user_message)
+            
+            try:
+                chat_response = await handle_simple_chat(state, user_message)
+                add_assistant(state, chat_response)
+                save_research_result(state, state.last_research_result)  # 保持聊天模式
+                yield f"data: {json.dumps({'type': 'result', 'response_type': 'simple_chat', 'message': chat_response})}\n\n"
+                return
+            except Exception as e:
+                print(f"[ERROR] Simple chat failed: {e}")
+                # 降级到完整研究模式
+                pass
         
         # Handle plan modification request
         if pending_plan and (user_message.startswith("修改计划:") or user_message.startswith("修改计划：")):
@@ -411,6 +477,29 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
             missing_info = pending_plan.clarification.get("missing_info", "")
             is_open_ended = pending_plan.clarification.get("open_ended", False) or not options
             
+            # #region agent log
+            import json as json_lib
+            import os
+            log_path = "/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json_lib.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "F",
+                        "location": "web.py:409",
+                        "message": "clarification response detected",
+                        "data": {
+                            "user_message": user_message,
+                            "missing_info": missing_info,
+                            "is_open_ended": is_open_ended,
+                            "task_draft_before": dict(state.task_draft),
+                        },
+                        "timestamp": int(__import__("time").time() * 1000)
+                    }, ensure_ascii=False) + "\n")
+            except: pass
+            # #endregion
+            
             if is_open_ended:
                 # 开放式问题：用户直接输入信息
                 # 将用户回答与原始问题关联，更新到 task_draft
@@ -433,8 +522,29 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                         "answer": user_message
                     })
                 
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json_lib.dumps({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "G",
+                            "location": "web.py:440",
+                            "message": "task_draft updated after open-ended answer",
+                            "data": {
+                                "task_draft_after": dict(state.task_draft),
+                                "project_info": state.task_draft.get("project_info", ""),
+                                "goal": state.task_draft.get("goal", ""),
+                            },
+                            "timestamp": int(__import__("time").time() * 1000)
+                        }, ensure_ascii=False) + "\n")
+                except: pass
+                # #endregion
+                
                 session["pending_plan"] = None
                 # 不改变 user_message，让它包含完整的用户输入
+                # 注意：已经在上面 add_user 了，不需要再次添加
+                skip_add_user = True
                 
             else:
                 # 选项式问题
@@ -452,11 +562,19 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                     
                     session["pending_plan"] = None
                     user_message = selected_option
+                    # 注意：已经在上面 add_user 了，不需要再次添加
+                    skip_add_user = True
+                else:
+                    skip_add_user = False
+        else:
+            skip_add_user = False
         
-        # Normal input processing
-        add_user(state, user_message)
+        # Normal input processing (only if not already added above)
+        if not skip_add_user:
+            add_user(state, user_message)
         
-        yield f"data: {json.dumps({'type': 'progress', 'stage': 'clarifying', 'message': '分析研究需求...'})}\n\n"
+        # Step 1: Clarifier - 分析研究需求
+        yield f"data: {json.dumps({'type': 'progress', 'stage': 'clarifying', 'message': '分析研究需求', 'detail': '正在理解您的问题背景和目标'})}\n\n"
         await asyncio.sleep(0.1)  # Let the event flush
         
         # Import and run steps individually for progress updates
@@ -468,6 +586,30 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
         from .agent import build_model
         
         model = build_model()
+        
+        # #region agent log
+        import json as json_lib
+        import os
+        log_path = "/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log"
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json_lib.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H",
+                    "location": "web.py:515",
+                    "message": "before assess_input call",
+                    "data": {
+                        "user_message": user_message,
+                        "messages_count": len(state.messages),
+                        "task_draft": dict(state.task_draft),
+                        "task_draft_goal": state.task_draft.get("goal", ""),
+                        "task_draft_project_info": state.task_draft.get("project_info", ""),
+                    },
+                    "timestamp": int(__import__("time").time() * 1000)
+                }, ensure_ascii=False) + "\n")
+        except: pass
+        # #endregion
         
         # Step 1: Clarifier
         plan = await assess_input(model, state.messages, state.task_draft)
@@ -504,7 +646,7 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
         elif plan.next_action == "START_RESEARCH":
             try:
                 # Step 2: Planner - 分析需要研究哪些方面
-                yield f"data: {json.dumps({'type': 'progress', 'stage': 'planning', 'message': '规划研究方向...', 'detail': plan.task.goal})}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'stage': 'planning', 'message': '规划研究方向', 'detail': f'正在分解研究任务：{plan.task.goal}'})}\n\n"
                 await asyncio.sleep(0.1)
                 
                 subtasks = await decompose_task(model, plan.task)
@@ -529,24 +671,37 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                 
                 # 显示研究方向
                 focus_list = [s.focus for s in subtasks]
-                yield f"data: {json.dumps({'type': 'progress', 'stage': 'planning', 'message': f'将研究 {len(subtasks)} 个方面', 'detail': ', '.join(focus_list[:3])})}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'stage': 'planning', 'message': f'已规划 {len(subtasks)} 个研究方向', 'detail': ', '.join(focus_list[:3]) + ('...' if len(focus_list) > 3 else '')})}\n\n"
                 await asyncio.sleep(0.1)
                 
                 # Step 3: Executor - 并行执行所有子任务
-                yield f"data: {json.dumps({'type': 'progress', 'stage': 'searching', 'message': f'并行检索 {len(subtasks)} 个方向', 'detail': ', '.join([s.focus for s in subtasks][:3])})}\n\n"
+                focus_preview = ', '.join([s.focus[:20] for s in subtasks[:3]]) + ('...' if len(subtasks) > 3 else '')
+                yield f"data: {json.dumps({'type': 'progress', 'stage': 'searching', 'message': f'检索信息 ({len(subtasks)} 个方向)', 'detail': f'正在并行检索：{focus_preview}'})}\n\n"
                 await asyncio.sleep(0.1)
                 
                 executor = Executor(model, max_parallel=len(subtasks))
                 
-                # 并行执行所有子任务
+                # 并行执行所有子任务 - 使用智能并发控制
                 import asyncio as aio
+                import time
+                from .tools.concurrency_manager import run_concurrent_tasks
+                
+                parallel_start = time.time()
+                print(f"[DEBUG] Starting intelligent parallel execution of {len(subtasks)} subtasks...")
+                
+                # 创建任务列表
                 tasks = [executor.execute_single(subtask) for subtask in subtasks]
-                results = await aio.gather(*tasks, return_exceptions=True)
+                
+                # 使用智能并发控制执行
+                results = await run_concurrent_tasks(tasks)
+                
+                parallel_end = time.time()
+                print(f"[DEBUG] Intelligent parallel execution completed: {parallel_end - parallel_start:.2f}s")
                 
                 # 过滤有效结果
                 subtask_results = [r for r in results if r is not None and not isinstance(r, Exception)]
                 
-                yield f"data: {json.dumps({'type': 'progress', 'stage': 'searching', 'message': f'检索完成', 'detail': f'获取 {len(subtask_results)}/{len(subtasks)} 个结果'})}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'stage': 'searching', 'message': f'检索完成 ({len(subtask_results)}/{len(subtasks)})', 'detail': f'已获取 {len(subtask_results)} 个研究方向的信息'})}\n\n"
                 await asyncio.sleep(0.1)
                 
                 if not subtask_results:
@@ -554,7 +709,7 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                     return
                 
                 # Step 4: Synthesizer
-                yield f"data: {json.dumps({'type': 'progress', 'stage': 'synthesizing', 'message': '分析整合', 'detail': f'{len(subtask_results)} 个方向的信息'})}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'stage': 'synthesizing', 'message': '整合分析结果', 'detail': f'正在综合分析 {len(subtask_results)} 个研究方向的信息，生成研究报告'})}\n\n"
                 await asyncio.sleep(0.1)
                 
                 research_result = await synthesize_results(
@@ -564,11 +719,12 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                     subtask_results
                 )
                 
-                yield f"data: {json.dumps({'type': 'progress', 'stage': 'complete', 'message': '研究完成'})}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'stage': 'complete', 'message': '研究完成', 'detail': '研究报告已生成'})}\n\n"
                 await asyncio.sleep(0.1)
                 
                 add_assistant(state, f"研究完成：{research_result.goal}")
                 update_task_draft(state, plan.task.model_dump())
+                save_research_result(state, render_research_result(research_result))  # 保存研究结果以便后续对话
                 yield f"data: {json.dumps({'type': 'result', 'response_type': 'research_result', 'message': '研究完成！', 'research_result': render_research_result(research_result)})}\n\n"
                 
             except Exception as e:
@@ -584,6 +740,52 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
     
     finally:
         yield "data: {\"type\": \"done\"}\n\n"
+
+
+async def handle_simple_chat(state: SessionState, message: str) -> str:
+    """处理简单的后续对话"""
+    # 使用简单的Agent进行对话
+    from .agent import build_model
+    
+    model = build_model("fast")
+    
+    # 构建上下文：最近几轮对话 + 研究结果摘要
+    context_messages = state.messages[-6:]  # 最近3轮对话
+    
+    context = "基于之前的研究：\n"
+    if state.last_research_result.get("synthesis"):
+        context += state.last_research_result["synthesis"][:500] + "...\n\n"
+    
+    context += "最近对话：\n"
+    for msg in context_messages:
+        role = "用户" if msg["role"] == "user" else "助手"
+        context += f"{role}: {msg['content'][:200]}\n"
+    
+    prompt = f"""
+作为研究助手，基于上述研究内容和对话历史，简洁回答用户的后续问题：
+
+{message}
+
+要求：
+- 直接回答，不需要重新研究
+- 基于已有信息进行分析
+- 如果信息不足，说明需要新的研究
+- 保持简洁，1-3段落即可
+"""
+    
+    try:
+        import litellm
+        from .config import OPENROUTER_API_KEY
+        
+        # Use standard LiteLLM call - OpenRouter routing handled by environment
+        response = await litellm.acompletion(
+            model=model.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"对话出错：{str(e)}"
 
 
 @app.get("/api/chat/stream")

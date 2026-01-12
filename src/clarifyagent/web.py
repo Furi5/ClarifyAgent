@@ -479,7 +479,15 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
     
     # Send session ID first
     yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
-    
+
+    # Import dependencies at the beginning so all branches can access them
+    from .clarifier import assess_input
+    from .planner import decompose_task
+    from .executor import Executor
+    from .synthesizer import synthesize_results
+    from .schema import Subtask
+    from .agent import build_model
+
     try:
         user_message = message.strip()
         if not user_message:
@@ -527,7 +535,7 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
         
         # Handle confirmation for pending plan
         elif pending_plan and is_confirmation(user_message):
-            add_user(state, "[用户确认] 已确认按计划执行")
+            add_user(state, user_message)  # 保留用户的实际输入，如"确认开始研究"
 
             # 使用已保存的 subtasks（如果有）
             planned_subtasks = session.get("planned_subtasks")
@@ -645,7 +653,7 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
             if is_open_ended:
                 # 开放式问题：用户直接输入信息
                 # 将用户回答与原始问题关联，更新到 task_draft
-                add_user(state, f"[管线信息补充] {user_message}")
+                add_user(state, user_message)  # 保留用户的原始输入，不添加标签
                 
                 if missing_info in ("pipeline_details", "project_details"):
                     # 解析用户提供的项目/产品信息，补充到 task_draft
@@ -693,7 +701,7 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                 choice = is_option_selection(user_message, options)
                 if choice:
                     selected_option = options[choice - 1]
-                    add_user(state, f"[澄清回复] {selected_option}")
+                    add_user(state, selected_option)  # 保留用户的原始选择，不添加标签
                     
                     if missing_info == "research_topic":
                         state.task_draft["goal"] = selected_option
@@ -718,15 +726,7 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
         # Step 1: Clarifier - 分析研究需求
         yield f"data: {json.dumps({'type': 'progress', 'stage': 'clarifying', 'message': '分析研究需求', 'detail': '正在理解您的问题背景和目标'})}\n\n"
         await asyncio.sleep(0.1)  # Let the event flush
-        
-        # Import and run steps individually for progress updates
-        from .clarifier import assess_input
-        from .planner import decompose_task
-        from .executor import Executor
-        from .synthesizer import synthesize_results
-        from .schema import Subtask
-        from .agent import build_model
-        
+
         model = build_model()
         
         # #region agent log
@@ -985,4 +985,4 @@ async def chat_stream(session_id: str = "new", message: str = ""):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, debug=True)

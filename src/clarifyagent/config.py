@@ -29,7 +29,7 @@ MAX_TOOL_CALLS_PER_AGENT = int(os.getenv("MAX_TOOL_CALLS_PER_AGENT", "5"))
 # Content length limits (to prevent context window overflow)
 # 参考 GPT-Researcher 的做法，使用更保守的限制
 MAX_CONTENT_CHARS = int(os.getenv("MAX_CONTENT_CHARS", "3000"))   # 单次工具返回最大字符数
-MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "10"))    # 搜索结果数量
+MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "15"))    # 搜索结果数量（增加以获取更多候选页面）
 MAX_SNIPPET_CHARS = int(os.getenv("MAX_SNIPPET_CHARS", "200"))    # 每个 snippet 最大字符数
 MAX_TOOL_OUTPUT = int(os.getenv("MAX_TOOL_OUTPUT", "2000"))       # 工具输出最大字符数
 

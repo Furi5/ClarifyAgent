@@ -195,9 +195,9 @@ class IntelligentResearchSelector:
                     return True, rule.jina_priority, rule.reason
         
         # 默认情况：短snippet可能信息不足
-        if len(snippet) < 200:
-            return True, 2, "信息片段较短，可能需要完整内容"
-        
+        if len(snippet) < 300:
+            return True, 2, "信息片段较短，需要完整内容以获取更多细节"
+
         return False, 0, "Serper信息充足"
     
     def create_research_plan(self, query: str, search_results: List[Dict]) -> Dict:
@@ -228,7 +228,7 @@ class IntelligentResearchSelector:
             
             should_use, priority, reason = self.should_use_jina(url, title, snippet)
             
-            if should_use and priority >= 3:  # 中高优先级才使用Jina
+            if should_use and priority >= 2:  # 中等及以上优先级使用Jina（降低阈值以获取更多深度信息）
                 plan['jina_targets'].append({
                     'url': url,
                     'title': title,
@@ -246,9 +246,9 @@ class IntelligentResearchSelector:
         
         # 限制Jina调用数量以控制成本和时间
         plan['jina_targets'] = sorted(
-            plan['jina_targets'], 
+            plan['jina_targets'],
             key=lambda x: (x['priority'], -x['rank'])
-        )[:3]  # 最多3个高价值目标
+        )[:5]  # 最多5个高价值目标（增加以获取更多深度信息）
         
         plan['reasoning'].append(f"检测到研究场景: {scenario.value}")
         plan['reasoning'].append(f"计划深度读取 {len(plan['jina_targets'])} 个高价值源")

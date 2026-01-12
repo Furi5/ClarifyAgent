@@ -37,69 +37,6 @@ def build_synthesizer(model: AnthropicModel = None) -> Agent:
     )
 
 
-def _extract_json(s: str) -> dict:
-    """Extract JSON from agent output, handling control characters."""
-    import re
-    
-    s = (s or "").strip()
-    
-    # 移除 markdown 代码块标记
-    if s.startswith("```"):
-        lines = s.split("\n")
-        # 移除首尾的 ``` 行
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        s = "\n".join(lines).strip()
-    
-    # 提取 JSON 部分
-    if s.startswith("{") and s.endswith("}"):
-        json_str = s
-    else:
-        a, b = s.find("{"), s.rfind("}")
-        if a != -1 and b != -1 and b > a:
-            json_str = s[a:b+1]
-        else:
-            raise ValueError(f"Synthesizer did not return JSON: {s[:200]}")
-    
-    # 尝试直接解析
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError:
-        pass
-    
-    # 清理控制字符并重试
-    # 在 JSON 字符串值内部，换行符应该是 \\n 而不是实际的换行
-    # 但我们需要保留转义的 \n (\\n)
-    def clean_json_string(s: str) -> str:
-        # 匹配 JSON 字符串值 ("..." 内的内容)
-        def replace_in_string(match):
-            content = match.group(1)
-            # 替换未转义的控制字符
-            content = content.replace('\n', '\\n')
-            content = content.replace('\r', '\\r')
-            content = content.replace('\t', '\\t')
-            return f'"{content}"'
-        
-        # 简单的字符串值替换（不完美但适用于大多数情况）
-        # 替换字符串内的实际换行为 \n
-        result = re.sub(r'"((?:[^"\\]|\\.)*)"', replace_in_string, s)
-        return result
-    
-    try:
-        cleaned = clean_json_string(json_str)
-        return json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        # 最后尝试：更激进的清理
-        try:
-            # 移除所有控制字符（除了已转义的）
-            aggressive_clean = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)
-            return json.loads(aggressive_clean)
-        except json.JSONDecodeError:
-            raise ValueError(f"JSON parse failed: {e}. Preview: {json_str[:300]}")
-
-
 def truncate_findings(subtask_results: List[SubtaskResult]) -> Dict:
     """Truncate findings to prevent content overflow."""
     findings_dict = {}
@@ -190,79 +127,48 @@ async def synthesize_results(
         result = await Runner.run(synthesizer, payload_str)
         synthesis_end = time.time()
         print(f"[DEBUG] Synthesizer LLM call completed: {synthesis_end - synthesis_start:.2f}s")
-        
+
         # #region synthesizer log
         with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H2_H4", "location": "synthesizer.py:after_api_call", "message": "After LLM API call", "data": {"has_result": result is not None, "has_final_output": bool(result.final_output if result else False), "final_output_preview": (result.final_output or "")[:500] if result else ""}, "timestamp": time.time() * 1000}) + "\n")
         # #endregion
-        
-        json_start = time.time()
-        data = _extract_json(result.final_output or "")
-        json_end = time.time()
-        print(f"[DEBUG] Synthesizer JSON extraction: {json_end - json_start:.2f}s")
+
+        # Directly use the markdown output (no JSON parsing needed)
+        synthesis_text = (result.final_output or "").strip()
+
+        # Remove markdown code block markers if present
+        if synthesis_text.startswith("```"):
+            lines = synthesis_text.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            synthesis_text = "\n".join(lines).strip()
+
+        print(f"[DEBUG] Synthesizer output length: {len(synthesis_text)} chars")
+
     except Exception as e:
         # #region synthesizer log
         with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:
             f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H4", "location": "synthesizer.py:exception", "message": "Synthesizer exception", "data": {"error_type": type(e).__name__, "error_message": str(e)}, "timestamp": time.time() * 1000}) + "\n")
         # #endregion
-        
+
         print(f"[ERROR] Synthesizer failed: {e}")
         # 返回一个基本的结果，而不是完全失败
         return ResearchResult(
             goal=goal,
             research_focus=research_focus,
             findings={r.focus: r for r in subtask_results},
-            synthesis=f"综合失败: {str(e)}。以下是各研究方向的原始发现：\n" + 
-                     "\n".join([f"- {r.focus}: {', '.join(r.findings[:3])}" for r in subtask_results]),
+            synthesis=f"综合失败: {str(e)}。以下是各研究方向的原始发现：\n\n" +
+                     "\n".join([f"## {r.focus}\n\n" + "\n".join([f"- {f}" for f in r.findings[:5]]) for r in subtask_results]),
             citations=[]
         )
-    
-    # Build a set of valid URLs from all subtask results
-    valid_urls = set()
-    url_to_source = {}  # Map URL to Source object for quick lookup
-    for result in subtask_results:
-        for src in result.sources:
-            if src.url:
-                valid_urls.add(src.url)
-                # Store the original source for reference
-                url_to_source[src.url] = src
-    
-    # Convert citations and validate sources
-    citations = []
-    invalid_citations_count = 0
-    for cit_data in data.get("citations", []):
-        validated_sources = []
-        for src in cit_data.get("sources", []):
-            src_url = src.get("url", "")
-            # Only include sources with valid URLs from our results
-            if src_url in valid_urls:
-                # Use the original source data to ensure consistency
-                original_src = url_to_source[src_url]
-                validated_sources.append(Source(
-                    title=src.get("title") or original_src.title,
-                    url=src_url,
-                    snippet=src.get("snippet") or original_src.snippet,
-                    source_type=src.get("source_type") or original_src.source_type
-                ))
-            else:
-                # Log invalid URL for debugging
-                print(f"[WARN] Synthesizer generated invalid citation URL: {src_url[:100]}")
-                invalid_citations_count += 1
-        
-        # Only add citation if it has at least one valid source
-        if validated_sources:
-            citations.append(Citation(
-                text=cit_data.get("text", ""),
-                sources=validated_sources
-            ))
-    
-    if invalid_citations_count > 0:
-        print(f"[WARN] Synthesizer generated {invalid_citations_count} invalid citation URLs (filtered out)")
-    
+
+    # No need for citation validation - citations are embedded in the text as [[site](url)]
     return ResearchResult(
         goal=goal,
         research_focus=research_focus,
         findings={r.focus: r for r in subtask_results},
-        synthesis=data.get("synthesis", ""),
-        citations=citations
+        synthesis=synthesis_text,
+        citations=[]  # Citations are now inline in the markdown text
     )

@@ -478,31 +478,31 @@ class Subagent:
             sources = []
             invalid_url_count = 0
             
-            for src in data.get("sources", [])[:5]:  # 检查更多，因为有些会被过滤
+            for src in data.get("sources", [])[:8]:  # 检查更多，因为有些会被过滤
                 url = src.get("url", "")
-                
+
                 # 验证 URL
                 if not is_valid_source_url(url):
                     invalid_url_count += 1
                     print(f"[WARN] Subagent-{self.agent_id} filtering invalid URL: {url[:100] if url else 'empty'}")
                     continue
-                
+
                 # 清理 URL
                 clean_url_str = clean_url(url)
-                
+
                 snippet = src.get("snippet", "")
                 if len(snippet) > 200:
                     snippet = snippet[:200] + "..."
-                
+
                 sources.append(Source(
                     title=src.get("title", "")[:100] or "Unknown",
                     url=clean_url_str,
                     snippet=snippet,
                     source_type=src.get("source_type")
                 ))
-                
-                # 最多保留 3 个有效 source
-                if len(sources) >= 3:
+
+                # 最多保留 5 个有效 source（增加以保留更多高质量来源）
+                if len(sources) >= 5:
                     break
             
             if invalid_url_count > 0:

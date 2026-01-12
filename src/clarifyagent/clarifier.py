@@ -385,7 +385,8 @@ async def assess_input(
     # 这样用户可以查看和修改研究计划
     if result.action == ClarifyAction.PROCEED and plan.confidence >= 0.95:
         # 极高置信度：直接执行（罕见情况）
-        plan.next_action = "START_RESEARCH"
+        plan.next_action = "CONFIRM_PLAN"
+        # plan.next_action = "START_RESEARCH"
     elif result.action == ClarifyAction.PROCEED and plan.confidence >= 0.7:
         # 高置信度：展示计划让用户确认/修改
         plan.next_action = "CONFIRM_PLAN"

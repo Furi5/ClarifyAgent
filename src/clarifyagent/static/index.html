@@ -240,6 +240,12 @@
             color: var(--text-secondary);
         }
 
+        /* Nested lists */
+        .content li > ul,
+        .content li > ol {
+            margin: 6px 0 6px 0;
+        }
+
         /* Clarification Content */
         .clarification-content {
             font-size: 14px;
@@ -1052,39 +1058,62 @@
             return div.innerHTML;
         }
 
-        // Enhanced Markdown to HTML converter
+        // Enhanced Markdown to HTML converter with proper nested list support
         function renderMarkdown(text) {
             if (!text) return '';
             
-            // Split into lines for better processing
             let lines = text.split('\n');
             let html = '';
-            let inList = false;
-            let listType = '';
+            let listStack = []; // Stack to track nested lists: [{type: 'ul'|'ol', indent: number}]
             let inTable = false;
             let tableRows = [];
-            let indentLevel = 0;
+            
+            function getIndentLevel(line) {
+                const match = line.match(/^(\s*)/);
+                return match ? match[1].length : 0;
+            }
+            
+            function getListType(line) {
+                const trimmed = line.trim();
+                if (trimmed.match(/^[\-\*\+]\s/)) return 'ul';
+                if (trimmed.match(/^\d+\.\s/)) return 'ol';
+                return null;
+            }
+            
+            function getListContent(line) {
+                return line.trim().replace(/^[\-\*\+]\s/, '').replace(/^\d+\.\s/, '');
+            }
+            
+            function closeListsToIndent(targetIndent) {
+                let closeTags = '';
+                while (listStack.length > 0 && listStack[listStack.length - 1].indent >= targetIndent) {
+                    const list = listStack.pop();
+                    closeTags += `</li></${list.type}>`;
+                }
+                return closeTags;
+            }
+            
+            function closeAllLists() {
+                let closeTags = '';
+                while (listStack.length > 0) {
+                    const list = listStack.pop();
+                    closeTags += `</li></${list.type}>`;
+                }
+                return closeTags;
+            }
             
             function parseTableRow(line) {
-                // Remove leading/trailing |
                 line = line.trim();
                 if (line.startsWith('|')) line = line.slice(1);
                 if (line.endsWith('|')) line = line.slice(0, -1);
-                // Split by | and trim each cell
                 return line.split('|').map(cell => cell.trim());
             }
             
-            function isTableSeparator(line) {
-                // Check if line is like |---|---| or |:---|:---:|---:|
-                return line.trim().match(/^\|[\s\-\:]*\|[\s\-\:]*\|/);
-            }
-            
             function renderTable(rows) {
-                if (rows.length < 2) return ''; // Need at least header + separator
+                if (rows.length < 2) return '';
                 
                 let tableHtml = '<table class="markdown-table">';
                 
-                // Header row
                 if (rows.length > 0) {
                     tableHtml += '<thead><tr>';
                     const headerCells = parseTableRow(rows[0]);
@@ -1094,7 +1123,6 @@
                     tableHtml += '</tr></thead>';
                 }
                 
-                // Data rows (skip separator row)
                 if (rows.length > 2) {
                     tableHtml += '<tbody>';
                     for (let i = 2; i < rows.length; i++) {
@@ -1112,45 +1140,15 @@
                 return tableHtml;
             }
 
-            function getIndentLevel(line) {
-                const match = line.match(/^(\s*)/);
-                return match ? match[1].length : 0;
-            }
-
-            function isListItem(line) {
-                return line.trim().match(/^[\-\*\+] /) || line.trim().match(/^\d+\. /);
-            }
-
-            // 预处理：检测紧跟列表的段落文本（如药品名称）
-            function preprocessLines(lines) {
-                let processed = [];
-                for (let i = 0; i < lines.length; i++) {
-                    let line = lines[i];
-                    let next = lines[i + 1];
-                    
-                    // 如果当前行是普通文本，下一行是列表项，则将当前行标记为列表标题
-                    if (line.trim() && !isListItem(line) && !line.startsWith('#') && 
-                        next && isListItem(next) && getIndentLevel(next) === 0) {
-                        processed.push({ type: 'list-title', content: line.trim(), indent: 0 });
-                    } else {
-                        processed.push({ type: 'normal', content: line, indent: getIndentLevel(line) });
-                    }
-                }
-                return processed;
-            }
-
-            const processedLines = preprocessLines(lines);
-            
-            for (let i = 0; i < processedLines.length; i++) {
-                let lineObj = processedLines[i];
-                let line = lineObj.content;
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
                 let trimmed = line.trim();
+                let indent = getIndentLevel(line);
                 
                 // Check if this is a table row
                 if (trimmed.includes('|') && trimmed.match(/^\|.+\|/)) {
                     if (!inTable) {
-                        // Start new table
-                        if (inList) { html += `</${listType}>`; inList = false; }
+                        html += closeAllLists();
                         inTable = true;
                         tableRows = [];
                     }
@@ -1165,55 +1163,76 @@
                     tableRows = [];
                 }
 
-                // List title (drug names, etc.)
-                if (lineObj.type === 'list-title') {
-                    if (inList) { html += `</${listType}>`; inList = false; }
-                    html += `<h5 style="margin: 16px 0 8px 0; font-weight: 600; color: var(--text-primary); font-size: 14px;">${processInline(trimmed)}</h5>`;
-                }
                 // Headers
-                else if (line.startsWith('#### ')) {
-                    if (inList) { html += `</${listType}>`; inList = false; }
+                if (line.startsWith('#### ')) {
+                    html += closeAllLists();
                     html += `<h5>${processInline(line.slice(5))}</h5>`;
                 } else if (line.startsWith('### ')) {
-                    if (inList) { html += `</${listType}>`; inList = false; }
+                    html += closeAllLists();
                     html += `<h4>${processInline(line.slice(4))}</h4>`;
                 } else if (line.startsWith('## ')) {
-                    if (inList) { html += `</${listType}>`; inList = false; }
+                    html += closeAllLists();
                     html += `<h3>${processInline(line.slice(3))}</h3>`;
                 } else if (line.startsWith('# ')) {
-                    if (inList) { html += `</${listType}>`; inList = false; }
+                    html += closeAllLists();
                     html += `<h2>${processInline(line.slice(2))}</h2>`;
                 }
-                // Unordered list (support -, *, +)
-                else if (line.match(/^[\s]*[\-\*\+] /)) {
-                    if (!inList || listType !== 'ul') {
-                        if (inList) html += `</${listType}>`;
-                        html += '<ul>';
-                        inList = true;
-                        listType = 'ul';
+                // List items
+                else if (getListType(line)) {
+                    const listType = getListType(line);
+                    const content = getListContent(line);
+                    
+                    if (listStack.length === 0) {
+                        // Start a new list
+                        html += `<${listType}><li>${processInline(content)}`;
+                        listStack.push({ type: listType, indent: indent });
+                    } else {
+                        const currentList = listStack[listStack.length - 1];
+                        
+                        if (indent > currentList.indent) {
+                            // Nested list - don't close the parent <li>
+                            html += `<${listType}><li>${processInline(content)}`;
+                            listStack.push({ type: listType, indent: indent });
+                        } else if (indent < currentList.indent) {
+                            // Going back to parent level
+                            html += closeListsToIndent(indent + 1);
+                            
+                            if (listStack.length > 0 && listStack[listStack.length - 1].type === listType) {
+                                html += `</li><li>${processInline(content)}`;
+                            } else {
+                                // Different list type at same level
+                                if (listStack.length > 0) {
+                                    const last = listStack.pop();
+                                    html += `</li></${last.type}>`;
+                                }
+                                html += `<${listType}><li>${processInline(content)}`;
+                                listStack.push({ type: listType, indent: indent });
+                            }
+                        } else {
+                            // Same indent level
+                            if (currentList.type === listType) {
+                                html += `</li><li>${processInline(content)}`;
+                            } else {
+                                // Different list type at same level
+                                const last = listStack.pop();
+                                html += `</li></${last.type}>`;
+                                html += `<${listType}><li>${processInline(content)}`;
+                                listStack.push({ type: listType, indent: indent });
+                            }
+                        }
                     }
-                    const listContent = line.replace(/^[\s]*[\-\*\+] /, '');
-                    html += `<li>${processInline(listContent)}</li>`;
                 }
-                // Ordered list (improved regex)
-                else if (line.match(/^[\s]*\d+\. /)) {
-                    if (!inList || listType !== 'ol') {
-                        if (inList) html += `</${listType}>`;
-                        html += '<ol>';
-                        inList = true;
-                        listType = 'ol';
-                    }
-                    const listContent = line.replace(/^[\s]*\d+\. /, '');
-                    html += `<li>${processInline(listContent)}</li>`;
-                }
-                // Empty line - end list but don't add content
+                // Empty line
                 else if (trimmed === '') {
-                    if (inList) { html += `</${listType}>`; inList = false; }
-                    // Don't add empty paragraphs
+                    // Keep lists open across single empty lines if next line is a list item
+                    const nextNonEmpty = lines.slice(i + 1).find(l => l.trim() !== '');
+                    if (!nextNonEmpty || !getListType(nextNonEmpty)) {
+                        html += closeAllLists();
+                    }
                 }
-                // Normal paragraph - but only if not empty and not part of list structure
-                else if (trimmed && lineObj.type === 'normal') {
-                    if (inList) { html += `</${listType}>`; inList = false; }
+                // Normal paragraph
+                else if (trimmed) {
+                    html += closeAllLists();
                     html += `<p>${processInline(line)}</p>`;
                 }
             }
@@ -1223,7 +1242,8 @@
                 html += renderTable(tableRows);
             }
             
-            if (inList) html += `</${listType}>`;
+            // Close any remaining lists
+            html += closeAllLists();
             
             return html;
         }
@@ -1231,7 +1251,6 @@
         function processInline(text) {
             return text
                 // 处理行内引用链接 [[echemi](url)] -> <a href="url" class="citation-link">echemi</a>
-                // 去掉方括号，只显示网站名称
                 .replace(/\[\[([^\]]+?)\]\(([^\)]+?)\)\]/g, '<a href="$2" target="_blank" class="citation-link">$1</a>')
                 // 处理普通 Markdown 链接 [text](url)
                 .replace(/\[([^\]]+?)\]\(([^\)]+?)\)/g, '<a href="$2" target="_blank">$1</a>')
@@ -1365,7 +1384,6 @@
             // 如果有选项，从问题文本中提取纯问题部分（去除嵌入的选项列表）
             if (options && options.length) {
                 // 尝试提取问题的第一段（选项列表之前的部分）
-                // 常见模式：问题后跟换行，然后是选项列表
                 const lines = question.split('\n');
                 const questionLines = [];
                 let foundOptionList = false;
@@ -1467,9 +1485,6 @@
         function addResult(data) {
             hideWelcome();
 
-            // 不再生成参考来源列表
-            // 引用已经通过 [[site](url)] 格式嵌入在 synthesis 文本中
-
             const html = `
                 <div class="message assistant">
                     <div class="avatar">D</div>
@@ -1508,7 +1523,7 @@
 
             input.value = '';
             input.style.height = 'auto';
-            input.placeholder = '输入研究问题...';  // 恢复默认 placeholder
+            input.placeholder = '输入研究问题...';
             
             addUser(text);
             addLoading();
@@ -1517,7 +1532,6 @@
             document.getElementById('sendBtn').disabled = true;
 
             try {
-                // Use SSE for streaming progress
                 const url = `/api/chat/stream?session_id=${sessionId || 'new'}&message=${encodeURIComponent(text)}`;
                 const eventSource = new EventSource(url);
 
@@ -1642,6 +1656,76 @@
                 send();
             }
         }
+
+        // ============ Test Section ============
+        function testMarkdown() {
+            const testCases = [
+                {
+                    name: "嵌套列表测试",
+                    input: `**请补充以下关键产品信息**
+
+为了准确预测销售额和构建竞争决策，需要了解：
+
+1. **适应症**: 您的STAT6抑制剂主要针对哪种疾病？
+   - A. 特应性皮炎(Atopic Dermatitis)
+   - B. 哮喘(Asthma)
+   - C. 过敏性疾病
+   - D. 其他(请说明)
+
+2. **开发阶段**: 目前处于什么阶段？
+   - A. 临床前
+   - B. 临床I期
+   - C. 临床II期
+   - D. 临床III期
+   - E. 已提交上市申请
+
+3. **目标市场**: 计划在哪些地区上市？
+   - A. 美国
+   - B. 欧洲
+   - C. 中国
+   - D. 全球多地区(请说明)
+
+4. **预期上市时间**: 大约什么时候上市？(年份)`
+                },
+                {
+                    name: "简单有序列表",
+                    input: `测试内容：
+
+1. 第一项
+2. 第二项
+3. 第三项`
+                },
+                {
+                    name: "简单无序列表",
+                    input: `测试内容：
+
+- 项目A
+- 项目B
+- 项目C`
+                }
+            ];
+            
+            const container = document.getElementById('messages');
+            container.innerHTML = '';
+            hideWelcome();
+            
+            testCases.forEach(tc => {
+                const html = `
+                    <div class="message assistant">
+                        <div class="avatar">T</div>
+                        <div class="content">
+                            <h4 style="color: var(--accent); margin-bottom: 10px;">${tc.name}</h4>
+                            <div class="clarification-content">${renderMarkdown(tc.input)}</div>
+                        </div>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', html);
+            });
+        }
+        
+        // Auto-run test on page load for debugging
+        // Uncomment the next line to auto-test:
+        // window.onload = testMarkdown;
     </script>
 </body>
 </html>

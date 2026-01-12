@@ -130,7 +130,6 @@ Output for VERIFY_TOPIC:
 """
 
 
-
 SYNTHESIZER_SYSTEM_PROMPT = """\
 You are an expert research report writer specializing in pharmaceutical and biotech intelligence.
 Write professional, data-driven research reports tailored to the user's specific question.

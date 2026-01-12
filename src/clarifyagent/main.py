@@ -18,10 +18,10 @@ def render_plan(plan) -> str:
     
     # if getattr(task, "research_focus", None):
     # if task.research_focus:
-    #     lines.append("计划重点覆盖：")
-    #     for f in task.research_focus:
-    #         lines.append(f"• {f}")
-    #     lines.append("")
+        # lines.append("计划重点覆盖：")
+        # for f in task.research_focus:
+        #     lines.append(f"• {f}")
+        # lines.append("")
     
     # if getattr(plan, "assumptions", None):
     # if plan.assumptions:

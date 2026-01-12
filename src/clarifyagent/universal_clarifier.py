@@ -181,17 +181,37 @@ else:
 
 ## Question Generation Guidelines
 
+## Question Generation Guidelines
+
+**Markdown Format (Strict Compliance Required)**:
+- **Bold** the titles.
+- Leave one blank line after the title.
+- **Mandatory Numbering**: If there are two or more questions, they **must** be formatted as a numbered list (1. 2. 3.).
+- **Bold** the field names.
+- **Indentation for Sub-options**: Any sub-choices or options (A, B, C) under a question must be indented using bullet points.
+
+**[Title]**
+
+[Optional explanatory text]
+
+1. **[Field 1]**: [Question Content]
+   - A. [Option A]
+   - B. [Option B]
+2. **[Field 2]**: [Question Content]
+   - A. [Option A]
+   - B. [Option B]
+```
+
+
 1. **Open-ended** (for WHAT/ACTION unclear):
-   - Use Markdown list format (one question per line with `- ` prefix)
-   - "请描述一下您想要处理的具体内容：\n- 是什么类型？\n- 主要特点是什么？"
+   - "**Please provide more information**\n\n- **Type**: What is the type?\n- **Features**: What are the main features?"
 
 2. **Choice-based** (for CONSTRAINT/OUTPUT unclear):
-   - Provide 2-3 options + "其他"
-   - "您偏好哪种格式？A / B / 其他"
+   - "**Please choose**\n\n- **Format**: A / B / Other\n- **Scope**: X / Y / Other"
 
 3. **Confirmation** (when mostly clear):
-   - State your understanding
-   - "我理解您想要X，对吗？"
+   - "**Please confirm**\n\nI understand you want X, is that correct?"
+
 
 ## Output Format (STRICT JSON)
 
@@ -632,6 +652,7 @@ For research tasks, also consider:
 
 When action=PROCEED, also output:
 - "research_focus": List of 3-5 specific research areas
+- "confirm_message": MUST include all research_focus items as bullet list
 """
 
 # 代码生成场景

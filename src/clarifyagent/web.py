@@ -91,13 +91,13 @@ def render_plan(plan, subtasks=None) -> str:
     lines = [f"我理解你想做：**{task.goal}**", ""]
     
     # if getattr(task, "research_focus", None) and task.research_focus:
-    #     lines.append("计划重点覆盖：")
+    #     lines.append("### 计划重点覆盖：")
     #     for f in task.research_focus:
-    #         lines.append(f"• {f}")
+    #         lines.append(f"- {f}")
     #     lines.append("")
 
     # if getattr(plan, "assumptions", None) and plan.assumptions:
-    #     lines.append("*我的假设：" + "；".join(plan.assumptions) + "*")
+    #     lines.append(f"- {plan.assumptions}")
     #     lines.append("")
 
     # lines.append("---")

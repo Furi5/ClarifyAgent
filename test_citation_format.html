@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Citation Format Test - 无方括号版本</title>
+    <style>
+        :root {
+            --accent: #5e6ad2;
+            --accent-light: #eef0fb;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.7;
+            color: #111827;
+        }
+
+        h1 {
+            color: #111827;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f9fafb;
+            border-radius: 8px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #6b7280;
+            margin-bottom: 10px;
+        }
+
+        /* Citation Links - 行内引用链接样式 (椭圆形小徽章/标签) */
+        .citation-link {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--accent);
+            background: var(--accent-light);
+            padding: 3px 8px;
+            border-radius: 12px;
+            text-decoration: none;
+            margin: 0 3px;
+            transition: all 0.15s ease;
+            vertical-align: baseline;
+            letter-spacing: 0.3px;
+            text-transform: lowercase;
+            border: 1px solid rgba(94, 106, 210, 0.15);
+        }
+
+        .citation-link:hover {
+            background: var(--accent);
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 3px 6px rgba(94, 106, 210, 0.25);
+            border-color: var(--accent);
+        }
+
+        /* 让多个引用链接紧凑排列 */
+        .citation-link + .citation-link {
+            margin-left: 2px;
+        }
+
+        .code-block {
+            background: #1f2937;
+            color: #e5e7eb;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            margin: 10px 0;
+            line-height: 1.5;
+        }
+
+        .output-text {
+            font-size: 14px;
+            line-height: 1.8;
+        }
+
+        .output-text p {
+            margin-bottom: 12px;
+        }
+
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .comparison-item {
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .comparison-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #6b7280;
+            margin-bottom: 8px;
+        }
+
+        .old-style {
+            font-size: 11px;
+            color: #5e6ad2;
+            background: #eef0fb;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin: 0 2px;
+        }
+    </style>
+</head>
+<body>
+    <h1>引用格式测试</h1>
+    <div class="subtitle">✨ 新版：去掉方括号，显示为小徽章标签</div>
+
+    <div class="comparison">
+        <div class="comparison-item">
+            <div class="comparison-label">❌ 旧版（带方括号）</div>
+            <div>获批上市<span class="old-style">[nature]</span><span class="old-style">[fda]</span></div>
+        </div>
+        <div class="comparison-item">
+            <div class="comparison-label">✅ 新版（无方括号）</div>
+            <div>获批上市<a href="#" class="citation-link">nature</a><a href="#" class="citation-link">fda</a></div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <div class="section-title">Markdown 源码</div>
+        <div class="code-block">KRAS G12C 抑制剂已获批上市[[nature](https://www.nature.com/articles/123)][[fda](https://www.fda.gov/drugs/abc)]。
+临床数据显示客观缓解率达到 37%[[clinicaltrials](https://clinicaltrials.gov/study/NCT123)]。
+
+市场规模预计从 2029 年的 32.6 亿美元增长到 2035 年的 70.1 亿美元[[marketsandmarkets](https://www.marketsandmarkets.com/report/123)]。
+
+Kymera Therapeutics 的 KT-621 代表了新一代 STAT6 降解剂[[nature2](https://nature.com/123)][[science](https://science.org/456)]。</div>
+    </div>
+
+    <div class="test-section">
+        <div class="section-title">✨ 渲染效果（鼠标悬停试试）</div>
+        <div id="output" class="output-text"></div>
+    </div>
+
+    <script>
+        function processInline(text) {
+            return text
+                // 处理行内引用链接 [[echemi](url)] -> <a href="url" class="citation-link">echemi</a>
+                // 新版：去掉方括号
+                .replace(/\[\[([^\]]+?)\]\(([^\)]+?)\)\]/g, '<a href="$2" target="_blank" class="citation-link">$1</a>')
+                // 处理普通 Markdown 链接 [text](url)
+                .replace(/\[([^\]]+?)\]\(([^\)]+?)\)/g, '<a href="$2" target="_blank">$1</a>')
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                .replace(/`(.+?)`/g, '<code>$1</code>');
+        }
+
+        const testText = `KRAS G12C 抑制剂已获批上市[[nature](https://www.nature.com/articles/123)][[fda](https://www.fda.gov/drugs/abc)]。临床数据显示客观缓解率达到 37%[[clinicaltrials](https://clinicaltrials.gov/study/NCT123)]。
+
+市场规模预计从 2029 年的 32.6 亿美元增长到 2035 年的 70.1 亿美元[[marketsandmarkets](https://www.marketsandmarkets.com/report/123)]。
+
+Kymera Therapeutics 的 KT-621 代表了新一代 STAT6 降解剂[[nature2](https://nature.com/123)][[science](https://science.org/456)]。`;
+
+        const lines = testText.split('\n');
+        let html = '';
+
+        for (let line of lines) {
+            if (line.trim()) {
+                html += `<p>${processInline(line)}</p>`;
+            }
+        }
+
+        document.getElementById('output').innerHTML = html;
+    </script>
+</body>
+</html>

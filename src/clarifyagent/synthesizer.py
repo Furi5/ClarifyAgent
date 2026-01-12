@@ -3,9 +3,11 @@ import json
 from typing import Dict, List
 from agents import Agent, Runner
 from agents.extensions.models.litellm_model import LitellmModel
+from .anthropic_model import AnthropicModel
 
 from .schema import SubtaskResult, ResearchResult, Citation, Source
 from .config import MAX_CONTENT_CHARS
+from .prompts import SYNTHESIZER_SYSTEM_PROMPT
 
 # 限制传递给 Synthesizer 的内容大小
 MAX_FINDINGS_PER_FOCUS = 10  # 每个 focus 最多保留 5 条 findings
@@ -13,58 +15,23 @@ MAX_SOURCES_PER_FOCUS = 5   # 每个 focus 最多保留 3 个 sources
 MAX_TOTAL_CHARS = 20000     # 总内容最大字符数
 
 
-SYNTHESIZER_SYSTEM_PROMPT = """\
-You are an expert research report writer. Write clear, actionable research reports.
-
-## Output Format
-Output ONLY valid JSON:
-{
-    "synthesis": "Your report in markdown format",
-    "citations": []
-}
-
-## Writing Rules
-
-1. **NO Executive Summary** - 直接给内容，不要写执行摘要
-2. **Write in Chinese** (中文)
-3. **Start with the answer** - 第一段直接回答用户问题
-4. **Use clear sections** - 用 ## 和 ### 分节
-5. **Include specific data** - 数字、日期、名称要具体
-6. **Be concise** - 简洁有力，不要废话
-
-## Structure by Question Type
-
-**Factual Query** (日期、定义):
-→ 直接答案 + 背景说明
-
-**Market Analysis** (市场、竞争):
-→ 市场规模 → 主要玩家 → 趋势 → 策略建议
-
-**Drug/Target Research** (药物、靶点):
-→ 当前状态 → 机制 → 临床进展 → 未来方向
-
-**Competitive Intelligence** (竞争分析):
-→ 竞争格局 → 对比分析 → 差异化建议
-
-## Example
-
-{
-    "synthesis": "## KRAS G12C 抑制剂研究进展\\n\\n目前全球有**2款**KRAS G12C抑制剂已获批上市：\\n\\n### 已上市药物\\n\\n1. **Sotorasib (Lumakras)** - 安进\\n   - 2021年5月FDA批准\\n   - 适应症：KRAS G12C突变NSCLC\\n   - 2023年销售额：约3亿美元\\n\\n2. **Adagrasib (Krazati)** - Mirati\\n   - 2022年12月FDA批准\\n   - 具有更长半衰期和CNS渗透性\\n\\n### 临床管线\\n\\n多个联合用药方案正在探索中...",
-    "citations": []
-}
-"""
-
-
-def build_synthesizer(model: LitellmModel = None) -> Agent:
+def build_synthesizer(model: AnthropicModel = None) -> Agent:
     """Build the synthesizer agent with quality model."""
     if model is None:
         from .agent import build_model
         model = build_model("quality")  # 使用高质量模型进行最终综合
         print("[DEBUG] Synthesizer using quality model for final synthesis")
-    
+
+    # Use LitellmModel wrapper for agents framework compatibility
+    # litellm will use ANTHROPIC_API_KEY from environment
+    from .config import ANTHROPIC_API_KEY
+    litellm_model = LitellmModel(
+        model=f"anthropic/{model.model}",
+        api_key=ANTHROPIC_API_KEY
+    )
     return Agent(
         name="Synthesizer",
-        model=model,
+        model=litellm_model,
         instructions=SYNTHESIZER_SYSTEM_PROMPT,
         tools=[]  # Synthesizer doesn't use tools
     )
@@ -160,7 +127,7 @@ def truncate_findings(subtask_results: List[SubtaskResult]) -> Dict:
 
 
 async def synthesize_results(
-    model: LitellmModel,
+    model: AnthropicModel,
     goal: str,
     research_focus: List[str],
     subtask_results: List[SubtaskResult]
@@ -250,16 +217,47 @@ async def synthesize_results(
             citations=[]
         )
     
-    # Convert citations
+    # Build a set of valid URLs from all subtask results
+    valid_urls = set()
+    url_to_source = {}  # Map URL to Source object for quick lookup
+    for result in subtask_results:
+        for src in result.sources:
+            if src.url:
+                valid_urls.add(src.url)
+                # Store the original source for reference
+                url_to_source[src.url] = src
+    
+    # Convert citations and validate sources
     citations = []
+    invalid_citations_count = 0
     for cit_data in data.get("citations", []):
-        sources = [
-            Source(**src) for src in cit_data.get("sources", [])
-        ]
-        citations.append(Citation(
-            text=cit_data.get("text", ""),
-            sources=sources
-        ))
+        validated_sources = []
+        for src in cit_data.get("sources", []):
+            src_url = src.get("url", "")
+            # Only include sources with valid URLs from our results
+            if src_url in valid_urls:
+                # Use the original source data to ensure consistency
+                original_src = url_to_source[src_url]
+                validated_sources.append(Source(
+                    title=src.get("title") or original_src.title,
+                    url=src_url,
+                    snippet=src.get("snippet") or original_src.snippet,
+                    source_type=src.get("source_type") or original_src.source_type
+                ))
+            else:
+                # Log invalid URL for debugging
+                print(f"[WARN] Synthesizer generated invalid citation URL: {src_url[:100]}")
+                invalid_citations_count += 1
+        
+        # Only add citation if it has at least one valid source
+        if validated_sources:
+            citations.append(Citation(
+                text=cit_data.get("text", ""),
+                sources=validated_sources
+            ))
+    
+    if invalid_citations_count > 0:
+        print(f"[WARN] Synthesizer generated {invalid_citations_count} invalid citation URLs (filtered out)")
     
     return ResearchResult(
         goal=goal,

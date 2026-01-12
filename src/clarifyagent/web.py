@@ -57,12 +57,12 @@ def get_or_create_session(session_id: Optional[str]) -> tuple[str, dict]:
 
 
 def create_orchestrator() -> Orchestrator:
-    """Create a new orchestrator instance."""
+    """Create a new orchestrator instance with different models for different purposes."""
     return Orchestrator(
-        clarifier_model=build_model(),
-        planner_model=build_model(),
-        executor_model=build_model(),
-        synthesizer_model=build_model(),
+        clarifier_model=build_model("clarifier"),
+        planner_model=build_model("planner"),
+        executor_model=build_model("executor"),
+        synthesizer_model=build_model("synthesizer"),
         max_parallel=MAX_PARALLEL_SUBAGENTS
     )
 
@@ -79,50 +79,125 @@ def render_clarification(plan) -> tuple[str, list[str]]:
     return question, options
 
 
-def render_plan(plan) -> str:
-    """Render plan for confirmation."""
+def render_plan(plan, subtasks=None) -> str:
+    """
+    Render plan for confirmation.
+
+    Args:
+        plan: Plan object from Clarifier
+        subtasks: Optional list of Subtask objects from Planner
+    """
     task = plan.task
     lines = [f"我理解你想做：**{task.goal}**", ""]
     
-    if getattr(task, "research_focus", None) and task.research_focus:
-        lines.append("计划重点覆盖：")
-        for f in task.research_focus:
-            lines.append(f"• {f}")
-        lines.append("")
-    
-    if getattr(plan, "assumptions", None) and plan.assumptions:
-        lines.append("（我的假设：" + "；".join(plan.assumptions) + "）")
-        lines.append("")
-    
-    lines.append(plan.confirm_prompt or "这样可以开始吗？")
+    # if getattr(task, "research_focus", None) and task.research_focus:
+    #     lines.append("计划重点覆盖：")
+    #     for f in task.research_focus:
+    #         lines.append(f"• {f}")
+    #     lines.append("")
+
+    # if getattr(plan, "assumptions", None) and plan.assumptions:
+    #     lines.append("*我的假设：" + "；".join(plan.assumptions) + "*")
+    #     lines.append("")
+
+    # lines.append("---")
+    # lines.append("")
+    lines.append(plan.confirm_prompt or "✅ 确认开始研究？")
+    lines.append("")
+    # lines.append("💡 提示：如需修改计划，请直接描述您的需求")
+
     return "\n".join(lines)
+
+# ============== 修改 web.py 中的 render_research_result 函数 ==============
+# 将下面的函数替换 web.py 中原来的 render_research_result 函数 (约第 101-139 行)
+
+from urllib.parse import urlparse
+
+def is_valid_url(url: str) -> bool:
+    """检查是否是有效的 URL 格式"""
+    if not url or not isinstance(url, str):
+        return False
+    
+    url = url.strip()
+    if not url:
+        return False
+    
+    # 基本格式检查
+    if not url.startswith(('http://', 'https://')):
+        return False
+    
+    try:
+        parsed = urlparse(url)
+        # 必须有 scheme 和 netloc
+        if not parsed.scheme or not parsed.netloc:
+            return False
+        # netloc 必须包含至少一个点（域名）
+        if '.' not in parsed.netloc:
+            return False
+        return True
+    except Exception:
+        return False
 
 
 def render_research_result(result: ResearchResult) -> dict:
-    """Render research result as structured data."""
+    """
+    Render research result as structured data.
+    增强版：更严格的 URL 验证
+    """
+    # Findings sources come from subtask_results (search results), so they should be valid
+    # Citations sources are already validated in synthesizer
+    # We add extra validation here as a safety net
+    
+    filtered_findings = {}
+    if result.findings:
+        for focus, finding in result.findings.items():
+            # 严格过滤：只保留有效 URL 格式的 sources
+            valid_sources = []
+            for s in finding.sources[:3]:
+                if is_valid_url(s.url):
+                    valid_sources.append(s)
+                else:
+                    print(f"[WARN] render_research_result: Filtering invalid URL in findings: {s.url[:100] if s.url else 'None'}")
+            
+            filtered_findings[focus] = {
+                "findings": finding.findings[:5],
+                "sources": [
+                    {
+                        "title": s.title or "Unknown",
+                        "url": s.url,
+                        "snippet": (s.snippet[:200] if s.snippet else "") if s.snippet else ""
+                    }
+                    for s in valid_sources
+                ],
+                "confidence": finding.confidence
+            }
+    
+    # Citations are already validated in synthesizer to only include valid URLs
+    # But we double-check to ensure URLs are valid format
+    filtered_citations = []
+    for cit in result.citations[:10]:
+        # 严格过滤：只保留有效 URL 格式的 sources
+        valid_cit_sources = []
+        for s in cit.sources:
+            if is_valid_url(s.url):
+                valid_cit_sources.append(s)
+            else:
+                print(f"[WARN] render_research_result: Filtering invalid URL in citations: {s.url[:100] if s.url else 'None'}")
+        
+        if valid_cit_sources:  # Only add citation if it has at least one valid source
+            filtered_citations.append({
+                "text": cit.text,
+                "sources": [{"title": s.title or "Unknown", "url": s.url} for s in valid_cit_sources]
+            })
+    
     return {
         "goal": result.goal,
         "synthesis": result.synthesis,
         "research_focus": result.research_focus,
-        "findings": {
-            focus: {
-                "findings": finding.findings[:5],
-                "sources": [
-                    {"title": s.title, "url": s.url, "snippet": s.snippet[:200] if s.snippet else ""}
-                    for s in finding.sources[:3]
-                ],
-                "confidence": finding.confidence
-            }
-            for focus, finding in result.findings.items()
-        } if result.findings else {},
-        "citations": [
-            {
-                "text": cit.text,
-                "sources": [{"title": s.title, "url": s.url} for s in cit.sources]
-            }
-            for cit in result.citations[:10]
-        ] if result.citations else []
+        "findings": filtered_findings,
+        "citations": filtered_citations
     }
+
 
 
 def is_confirmation(text: str) -> bool:
@@ -453,26 +528,93 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
         # Handle confirmation for pending plan
         elif pending_plan and is_confirmation(user_message):
             add_user(state, "[用户确认] 已确认按计划执行")
+
+            # 使用已保存的 subtasks（如果有）
+            planned_subtasks = session.get("planned_subtasks")
+
             session["pending_plan"] = None
-            
-            yield f"data: {json.dumps({'type': 'progress', 'stage': 'planning', 'message': '开始执行研究计划...'})}\n\n"
-            
-            orchestrator = create_orchestrator()
-            plan, research_result = await orchestrator.run(
-                user_input=user_message,
-                messages=state.messages,
-                task_draft=state.task_draft
-            )
-            
-            if research_result:
-                add_assistant(state, f"研究完成：{research_result.goal}")
-                yield f"data: {json.dumps({'type': 'result', 'response_type': 'research_result', 'message': '研究完成！', 'research_result': render_research_result(research_result)})}\n\n"
+            session["planned_subtasks"] = None  # 清除已使用的计划
+
+            yield f"data: {json.dumps({'type': 'progress', 'stage': 'executing', 'message': '开始执行研究...', 'detail': '按计划进行深入调研'})}\n\n"
+            await asyncio.sleep(0.1)
+
+            # 构建 model（确认分支中需要）
+            model = build_model()
+
+            # 如果有预先规划的 subtasks，直接使用它们执行
+            if planned_subtasks and len(planned_subtasks) > 0:
+                try:
+                    # Step 3: 直接执行已规划的 subtasks
+                    focus_preview = ', '.join([s.focus[:20] for s in planned_subtasks[:3]]) + ('...' if len(planned_subtasks) > 3 else '')
+                    yield f"data: {json.dumps({'type': 'progress', 'stage': 'searching', 'message': f'检索信息 ({len(planned_subtasks)} 个方向)', 'detail': f'正在并行检索：{focus_preview}'})}\n\n"
+                    await asyncio.sleep(0.1)
+
+                    executor = Executor(model, max_parallel=len(planned_subtasks))
+
+                    # 并行执行
+                    import time
+                    from .tools.concurrency_manager import run_concurrent_tasks
+
+                    parallel_start = time.time()
+                    tasks = [executor.execute_single(subtask) for subtask in planned_subtasks]
+                    results = await run_concurrent_tasks(tasks)
+                    parallel_end = time.time()
+
+                    print(f"[DEBUG] Executed planned subtasks: {parallel_end - parallel_start:.2f}s")
+
+                    subtask_results = [r for r in results if r is not None and not isinstance(r, Exception)]
+
+                    yield f"data: {json.dumps({'type': 'progress', 'stage': 'searching', 'message': f'检索完成 ({len(subtask_results)}/{len(planned_subtasks)})', 'detail': f'已获取 {len(subtask_results)} 个研究方向的信息'})}\n\n"
+                    await asyncio.sleep(0.1)
+
+                    if not subtask_results:
+                        yield f"data: {json.dumps({'type': 'error', 'message': '检索失败，未获取到结果'})}\n\n"
+                        return
+
+                    # Step 4: Synthesizer
+                    yield f"data: {json.dumps({'type': 'progress', 'stage': 'synthesizing', 'message': '整合分析结果', 'detail': f'正在综合分析 {len(subtask_results)} 个研究方向的信息'})}\n\n"
+                    await asyncio.sleep(0.1)
+
+                    research_result = await synthesize_results(
+                        model,
+                        pending_plan.task.goal,
+                        pending_plan.task.research_focus,
+                        subtask_results
+                    )
+
+                    yield f"data: {json.dumps({'type': 'progress', 'stage': 'complete', 'message': '研究完成', 'detail': '研究报告已生成'})}\n\n"
+
+                    add_assistant(state, f"研究完成：{research_result.goal}")
+                    update_task_draft(state, pending_plan.task.model_dump())
+                    save_research_result(state, render_research_result(research_result))
+
+                    yield f"data: {json.dumps({'type': 'result', 'response_type': 'research_result', 'message': '研究完成！', 'research_result': render_research_result(research_result)})}\n\n"
+                    return
+
+                except Exception as e:
+                    logger.exception(f"Execution error: {e}")
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'执行出错: {str(e)}'})}\n\n"
+                    return
+
+            # 否则，使用 Orchestrator 完整流程
             else:
-                yield f"data: {json.dumps({'type': 'error', 'message': '研究已完成，但未返回结果。'})}\n\n"
+                orchestrator = create_orchestrator()
+                plan, research_result = await orchestrator.run(
+                    user_input=user_message,
+                    messages=state.messages,
+                    task_draft=state.task_draft
+                )
+
+                if research_result:
+                    add_assistant(state, f"研究完成：{research_result.goal}")
+                    yield f"data: {json.dumps({'type': 'result', 'response_type': 'research_result', 'message': '研究完成！', 'research_result': render_research_result(research_result)})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': 'error', 'message': '研究已完成，但未返回结果。'})}\n\n"
             return
         
         # Handle clarification response (options or open-ended)
-        if pending_plan and pending_plan.clarification:
+        # 注意：只有在不是确认的情况下才处理澄清回复
+        if pending_plan and pending_plan.clarification and not is_confirmation(user_message):
             options = pending_plan.clarification.get("options", [])
             missing_info = pending_plan.clarification.get("missing_info", "")
             is_open_ended = pending_plan.clarification.get("open_ended", False) or not options
@@ -627,11 +769,44 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
         
         elif plan.next_action == "CONFIRM_PLAN":
             update_task_draft(state, plan.task.model_dump())
-            msg = render_plan(plan)
-            add_assistant(state, msg)
-            session["pending_plan"] = plan
-            
-            yield f"data: {json.dumps({'type': 'result', 'response_type': 'confirm_plan', 'message': msg})}\n\n"
+
+            # 在确认阶段调用 Planner 生成详细计划
+            yield f"data: {json.dumps({'type': 'progress', 'stage': 'planning', 'message': '规划研究方向...', 'detail': '正在制定详细的研究计划'})}\n\n"
+            await asyncio.sleep(0.1)
+
+            try:
+                subtasks = await decompose_task(model, plan.task)
+
+                if not subtasks:
+                    # Fallback: 从 research_focus 创建基本 subtasks
+                    from .schema import Subtask
+                    subtasks = [
+                        Subtask(
+                            id=i + 1,
+                            focus=focus,
+                            queries=[f"{plan.task.goal} {focus}"],
+                            parallel=True
+                        )
+                        for i, focus in enumerate(plan.task.research_focus[:3])
+                    ]
+
+                # 保存 subtasks 到 session
+                session["planned_subtasks"] = subtasks
+
+                # 渲染详细计划
+                msg = render_plan(plan, subtasks=subtasks)
+                add_assistant(state, msg)
+                session["pending_plan"] = plan
+
+                yield f"data: {json.dumps({'type': 'result', 'response_type': 'confirm_plan', 'message': msg})}\n\n"
+
+            except Exception as e:
+                logger.exception(f"Planning error: {e}")
+                # 降级：不展示详细计划
+                msg = render_plan(plan)
+                add_assistant(state, msg)
+                session["pending_plan"] = plan
+                yield f"data: {json.dumps({'type': 'result', 'response_type': 'confirm_plan', 'message': msg})}\n\n"
         
         elif plan.next_action == "CANNOT_DO":
             reason = plan.block.reason if plan.block else "这个我暂时做不了。"
@@ -712,6 +887,17 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                 yield f"data: {json.dumps({'type': 'progress', 'stage': 'synthesizing', 'message': '整合分析结果', 'detail': f'正在综合分析 {len(subtask_results)} 个研究方向的信息，生成研究报告'})}\n\n"
                 await asyncio.sleep(0.1)
                 
+                # #region debug log - before synthesize
+                import json as json_lib
+                import time
+                log_path = "/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log"
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json_lib.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C,D,E", "location": "web.py:before_synthesize", "message": "About to call synthesize_results", "data": {"num_subtask_results": len(subtask_results), "goal": plan.task.goal, "research_focus": plan.task.research_focus}, "timestamp": time.time() * 1000}, ensure_ascii=False) + "\n")
+                except Exception as e:
+                    print(f"[DEBUG] Failed to write log in web.py: {e}")
+                # #endregion
+                
                 research_result = await synthesize_results(
                     model,
                     plan.task.goal,
@@ -774,12 +960,8 @@ async def handle_simple_chat(state: SessionState, message: str) -> str:
 """
     
     try:
-        import litellm
-        from .config import OPENROUTER_API_KEY
-        
-        # Use standard LiteLLM call - OpenRouter routing handled by environment
-        response = await litellm.acompletion(
-            model=model.model,
+        # Use Anthropic API directly
+        response = await model.acompletion(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )

@@ -737,6 +737,35 @@
             text-decoration: underline;
         }
 
+        /* Citation Links - 低调学术风格椭圆形徽章 */
+        .citation-link {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 500;
+            color: #4b5563;
+            background: #f3f4f6;
+            padding: 3px 8px;
+            border-radius: 10px;
+            text-decoration: none;
+            margin: 0 2px;
+            transition: all 0.15s ease;
+            vertical-align: baseline;
+            letter-spacing: 0.2px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .citation-link:hover {
+            background: #e5e7eb;
+            color: #1f2937;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* 让多个引用链接紧凑排列 */
+        .citation-link + .citation-link {
+            margin-left: 2px;
+        }
+
         /* Loading & Progress */
         .loading {
             display: flex;
@@ -1201,6 +1230,11 @@
         
         function processInline(text) {
             return text
+                // 处理行内引用链接 [[echemi](url)] -> <a href="url" class="citation-link">echemi</a>
+                // 去掉方括号，只显示网站名称
+                .replace(/\[\[([^\]]+?)\]\(([^\)]+?)\)\]/g, '<a href="$2" target="_blank" class="citation-link">$1</a>')
+                // 处理普通 Markdown 链接 [text](url)
+                .replace(/\[([^\]]+?)\]\(([^\)]+?)\)/g, '<a href="$2" target="_blank">$1</a>')
                 .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\*(.+?)\*/g, '<em>$1</em>')
                 .replace(/`(.+?)`/g, '<code>$1</code>');
@@ -1432,30 +1466,9 @@
 
         function addResult(data) {
             hideWelcome();
-            
-            // 收集所有来源
-            let allSources = [];
-            let sourceIndex = 1;
-            
-            if (data.findings && Object.keys(data.findings).length) {
-                for (const [focus, info] of Object.entries(data.findings)) {
-                    (info.sources || []).forEach(s => {
-                        if (s.url && !allSources.find(x => x.url === s.url)) {
-                            allSources.push({ ...s, index: sourceIndex++ });
-                        }
-                    });
-                }
-            }
-            
-            // 参考文献部分
-            let referencesHtml = '';
-            if (allSources.length > 0) {
-                referencesHtml = '<div class="references-section"><div class="section-title">参考来源</div><div class="references">';
-                allSources.forEach(s => {
-                    referencesHtml += `<div class="reference"><span class="ref-num">[${s.index}]</span><a href="${s.url}" target="_blank">${escape(s.title)}</a></div>`;
-                });
-                referencesHtml += '</div></div>';
-            }
+
+            // 不再生成参考来源列表
+            // 引用已经通过 [[site](url)] 格式嵌入在 synthesis 文本中
 
             const html = `
                 <div class="message assistant">
@@ -1463,7 +1476,6 @@
                     <div class="content">
                         <div class="result">
                             ${renderMarkdown(data.synthesis || '暂无研究结果')}
-                            ${referencesHtml}
                         </div>
                     </div>
                 </div>

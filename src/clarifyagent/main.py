@@ -15,19 +15,19 @@ def render_plan(plan) -> str:
     """Render plan for display."""
     task = plan.task
     lines = [f"我理解你想做：**{task.goal}**", ""]
-
-    if getattr(task, "research_focus", None):
-        if task.research_focus:
-            lines.append("计划重点覆盖：")
-            for f in task.research_focus:
-                lines.append(f"• {f}")
-            lines.append("")
-
-    if getattr(plan, "assumptions", None):
-        if plan.assumptions:
-            lines.append("（我的假设：" + "；".join(plan.assumptions) + "）")
-            lines.append("")
-
+    
+    # if getattr(task, "research_focus", None):
+    # if task.research_focus:
+    #     lines.append("计划重点覆盖：")
+    #     for f in task.research_focus:
+    #         lines.append(f"• {f}")
+    #     lines.append("")
+    
+    # if getattr(plan, "assumptions", None):
+    # if plan.assumptions:
+    #     lines.append("（我的假设：" + "；".join(plan.assumptions) + "）")
+    #     lines.append("")
+    
     lines.append(plan.confirm_prompt or "这样可以开始吗？")
     return "\n".join(lines)
 
@@ -152,7 +152,7 @@ async def main():
         user = input("User> ").strip()
         if not user:
             continue
-
+        
         # Handle confirmation
         if pending_plan and is_confirmation(user):
             add_user(state, "[用户确认] 已确认按计划执行")
@@ -169,7 +169,7 @@ async def main():
                 print("\n" + render_research_result(research_result))
                 add_assistant(state, render_research_result(research_result))
             continue
-
+        
         # Normal input
         add_user(state, user)
         pending_plan = None
@@ -182,7 +182,7 @@ async def main():
         )
         
         print(f"[DEBUG] next_action: {plan.next_action}, confidence: {plan.confidence}")
-
+        
         # Handle different actions
         if plan.next_action == "START_RESEARCH":
             print("🔍 开始研究...")
@@ -272,14 +272,14 @@ async def main():
             add_assistant(state, response)
             pending_plan = plan
             continue
-
+            
         elif plan.next_action == "VERIFY_TOPIC":
             topic = plan.unknown_topic or "unknown"
             print(f"🔍 正在验证「{topic}」...")
             add_assistant(state, f"正在验证「{topic}」...")
             # Orchestrator already handles VERIFY_TOPIC, so we just continue
             continue
-
+            
         elif plan.next_action == "CANNOT_DO":
             reason = plan.block.reason or "这个我暂时做不了。"
             print(reason)

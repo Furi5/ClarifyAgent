@@ -1,6 +1,6 @@
 """Executor module for parallel task execution."""
 from typing import List, Optional
-from agents.extensions.models.litellm_model import LitellmModel
+from .anthropic_model import AnthropicModel
 
 from .schema import Subtask, SubtaskResult
 from .agents.pool import SubagentPool
@@ -9,8 +9,8 @@ from .agents.subagent import Subagent
 
 class Executor:
     """Executor for parallel research task execution."""
-    
-    def __init__(self, model: LitellmModel, max_parallel: int = 5):
+
+    def __init__(self, model: AnthropicModel, max_parallel: int = 5):
         self.model = model
         self.pool = SubagentPool(model, max_parallel=max_parallel)
         self._single_agent: Optional[Subagent] = None

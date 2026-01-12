@@ -3,17 +3,21 @@
 This file contains project-specific information for Claude Code to help with development tasks.
 
 ## Project Information
+
 - **Project Name**: ClarifyAgent
 - **Type**: Python web application for clarifying user queries
 - **Main Framework**: Flask/FastAPI (web interface)
 
 ## Development Commands
+
 ```bash
 # Run the web application
 python run_web.py
 
 # Install dependencies
 pip install -r requirements.txt
+
+uv run uvicorn web_app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Run tests (if available)
 pytest
@@ -26,6 +30,7 @@ mypy src/
 ```
 
 ## Project Structure
+
 - `src/clarifyagent/` - Main application code
   - `clarifier.py` - Core clarification logic
   - `web.py` - Web interface
@@ -36,6 +41,7 @@ mypy src/
 - `log.md` - Project logs
 
 ## Notes
+
 - The project appears to be focused on clarifying user queries or requests
 - Web interface available through Flask/FastAPI
 - Static files served from `src/clarifyagent/static/`

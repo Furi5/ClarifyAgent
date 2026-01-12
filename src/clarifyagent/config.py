@@ -7,18 +7,20 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY")
 JINA_API_KEY = os.getenv("JINA_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 # Model configuration for different modules
-# Using OpenRouter for Claude models (use openrouter/ prefix for LiteLLM routing)
-CLARIFIER_MODEL = os.getenv("CLARIFIER_MODEL", "openrouter/anthropic/claude-4.5-sonnet")
-PLANNER_MODEL = os.getenv("PLANNER_MODEL", "openrouter/anthropic/claude-4.5-sonnet")
-EXECUTOR_MODEL = os.getenv("EXECUTOR_MODEL", "openrouter/anthropic/claude-4.5-sonnet")
-SYNTHESIZER_MODEL = os.getenv("SYNTHESIZER_MODEL", "openrouter/anthropic/claude-opus-4.5")
+# Using official Anthropic SDK with direct Claude models
+# Strategy: Use Opus for critical thinking (clarify, plan, execute), Sonnet for final synthesis
+CLARIFIER_MODEL = os.getenv("CLARIFIER_MODEL", "claude-sonnet-4-5")
+PLANNER_MODEL = os.getenv("PLANNER_MODEL", "claude-sonnet-4-5")
+EXECUTOR_MODEL = os.getenv("EXECUTOR_MODEL", "claude-sonnet-4-5")
+SYNTHESIZER_MODEL = os.getenv("SYNTHESIZER_MODEL", "claude-opus-4-5")
 
 # Performance optimization: Model layering strategy
-# Sonnet for fast tool calls, Opus for high-quality synthesis
-FAST_MODEL = os.getenv("FAST_MODEL", "openrouter/anthropic/claude-4.5-sonnet")  # For tool calling decisions
-QUALITY_MODEL = os.getenv("QUALITY_MODEL", "openrouter/anthropic/claude-opus-4.5")  # For final synthesis
+# Opus for critical decisions, Sonnet for fast synthesis
+FAST_MODEL = os.getenv("FAST_MODEL", "claude-sonnet-4-5")  # For fast synthesis
+QUALITY_MODEL = os.getenv("QUALITY_MODEL", "claude-sonnet-4-5")  # For critical thinking
 
 # Parallel execution configuration
 MAX_PARALLEL_SUBAGENTS = int(os.getenv("MAX_PARALLEL_SUBAGENTS", "5"))

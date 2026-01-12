@@ -2,15 +2,15 @@
 import json
 import re
 import logging
+from datetime import datetime
 from typing import Optional, List, Dict
-from agents.extensions.models.litellm_model import LitellmModel
+from .anthropic_model import AnthropicModel
 
 from .schema import Plan, Task
 from .universal_clarifier import (
     UniversalClarifier,
     ClarifyAction,
     ClarifyResult,
-    create_clarifier_for_litellm,
     DEEP_RESEARCH_ADDITIONS,
 )
 from .tools.serperapi import web_search
@@ -168,7 +168,7 @@ def _convert_to_plan(result: ClarifyResult, task_draft: Dict) -> Plan:
 
 
 async def assess_input(
-    model: LitellmModel,
+    model: AnthropicModel,
     messages: list[dict],
     task_draft: dict,
     enable_pre_search: bool = True
@@ -211,9 +211,7 @@ async def assess_input(
     
     # 创建通用澄清器（Deep Research 特化）
     async def llm_call(prompt: str, system: str) -> str:
-        import litellm
-        response = await litellm.acompletion(
-            model=model.model,
+        response = await model.acompletion(
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt}
@@ -269,9 +267,12 @@ async def assess_input(
             print(f"[DEBUG] Pre-search disabled for performance optimization")
     
     # 构建额外上下文
+    current_date = datetime.now().strftime("%Y年%m月%d日")
     additional_context = {
         "task_draft": task_draft,
         "search_context": search_context,
+        "current_date": current_date,
+        "date_context": f"当前日期是 {current_date}。当用户询问'最新'或'近期'时，应该指最近1-2年内（{datetime.now().year - 1}-{datetime.now().year}年）的信息。",
     }
     
     # 构建对话摘要
@@ -380,17 +381,28 @@ async def assess_input(
     # #endregion
     
     # 后处理：强制执行决策规则
-    if result.action == ClarifyAction.PROCEED and plan.confidence >= 0.85:
+    # 调整策略：几乎总是让用户确认计划，只有极高置信度（>= 0.95）才直接执行
+    # 这样用户可以查看和修改研究计划
+    if result.action == ClarifyAction.PROCEED and plan.confidence >= 0.95:
+        # 极高置信度：直接执行（罕见情况）
         plan.next_action = "START_RESEARCH"
-    elif result.action == ClarifyAction.CONFIRM and plan.confidence >= 0.7:
+    elif result.action == ClarifyAction.PROCEED and plan.confidence >= 0.7:
+        # 高置信度：展示计划让用户确认/修改
+        plan.next_action = "CONFIRM_PLAN"
+    elif result.action == ClarifyAction.CONFIRM and plan.confidence >= 0.6:
+        # 中等置信度：展示计划让用户确认
         plan.next_action = "CONFIRM_PLAN"
     elif result.action == ClarifyAction.NEED_CLARIFICATION:
+        # 需要澄清
         plan.next_action = "NEED_CLARIFICATION"
-    
+    else:
+        # 默认：需要澄清
+        plan.next_action = "NEED_CLARIFICATION"
+
     return plan
 
 
-def build_clarifier(model: LitellmModel):
+def build_clarifier(model: AnthropicModel):
     """构建澄清器（向后兼容，实际不再使用）"""
     # 这个函数保留是为了向后兼容，实际逻辑在 assess_input 中
     return None

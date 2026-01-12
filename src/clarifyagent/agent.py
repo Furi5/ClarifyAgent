@@ -1,10 +1,10 @@
 from typing import Any
 from agents import Agent, RunContextWrapper, function_tool, set_tracing_disabled
-from agents.extensions.models.litellm_model import LitellmModel
 
 import os
 
 from .tools.serperapi import web_search
+from .anthropic_model import AnthropicModel
 # from .tools.jina import jina_read  # 已禁用以提升性能
 
 set_tracing_disabled(True)
@@ -27,11 +27,8 @@ async def web_search_tool(ctx: RunContextWrapper[Any], query: str) -> dict:
 #     return await jina_read(url=url)  # 已禁用以提升性能
 
 def build_agent() -> Agent:
-    llm = LitellmModel(
-        model="deepseek/deepseek-chat",
-        api_key=os.getenv("DEEPSEEK_API_KEY"),
-        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-    )
+    from .anthropic_model import build_anthropic_model
+    llm = build_anthropic_model("fast")
 
     return Agent(
         name="ClarifyAgent",
@@ -48,40 +45,13 @@ def build_agent() -> Agent:
 
 
 
-def build_model(model_type: str = "standard") -> LitellmModel:
+def build_model(model_type: str = "standard") -> AnthropicModel:
     """
-    Build the LLM model adapter with performance optimization.
-    
+    Build the Anthropic model adapter with performance optimization.
+
     Args:
         model_type: "fast" for tool calls, "quality" for synthesis, "standard" for default
     """
-    from .config import FAST_MODEL, QUALITY_MODEL, OPENROUTER_API_KEY
-    
-    if model_type == "fast":
-        model = FAST_MODEL
-    elif model_type == "quality":
-        model = QUALITY_MODEL
-    else:
-        model = os.getenv("LLM_MODEL", "openrouter/anthropic/claude-4.5-sonnet")
-    
-    # Set OpenRouter API key for LiteLLM
-    os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
-    
-    # Determine API configuration based on model
-    if model.startswith("openrouter/"):
-        # Using OpenRouter - LiteLLM will handle routing automatically
-        base_url = "https://openrouter.ai/api/v1"
-        api_key = OPENROUTER_API_KEY
-        if not api_key:
-            raise RuntimeError("Missing OPENROUTER_API_KEY in environment/.env for Claude models")
-        print(f"[DEBUG] Using OpenRouter for model: {model}")
-        
-    else:
-        # Fallback to DeepSeek or other providers
-        base_url = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
-        api_key = os.getenv("LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
-        if not api_key:
-            raise RuntimeError("Missing LLM_API_KEY (or DEEPSEEK_API_KEY) in environment/.env")
-        print(f"[DEBUG] Using default provider for model: {model}")
+    from .anthropic_model import build_anthropic_model
 
-    return LitellmModel(model=model, base_url=base_url, api_key=api_key)
+    return build_anthropic_model(model_type)

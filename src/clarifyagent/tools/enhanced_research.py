@@ -22,50 +22,61 @@ class EnhancedResearchTool:
             'scenarios_detected': {}
         }
     
-    async def smart_research(self, query: str, max_results: int = 10, 
+    async def smart_research(self, query: str, max_results: int = 10,
                            task_context: Dict = None) -> Dict[str, Any]:
         """
         智能研究：根据场景自动选择工具组合
-        
+
         Args:
             query: 研究查询
             max_results: 最大结果数
             task_context: 任务上下文
-            
+
         Returns:
             包含findings, sources, confidence的结果
         """
         start_time = time.time()
         task_context = task_context or {}
-        
+
         # 1. 场景检测
         scenario = self.selector.detect_scenario(query, task_context)
         self.performance_stats['scenarios_detected'][scenario.value] = \
             self.performance_stats['scenarios_detected'].get(scenario.value, 0) + 1
-        
+
         print(f"[EnhancedResearch] 检测场景: {scenario.value}")
-        
-        # 2. Serper快速搜索获取候选源
+
+        # 2. Serper快速搜索获取候选源 - 直接获取 JSON
         serper_start = time.time()
-        search_results = await web_search(query, max_results)
+        search_results_json = await self._get_serper_json(query, max_results)
         self.performance_stats['serper_calls'] += 1
         serper_time = time.time() - serper_start
-        
-        if not search_results:
+
+        if not search_results_json:
             return {
                 'findings': ['搜索未找到相关结果'],
                 'sources': [],
                 'confidence': 0.0,
                 'research_plan': {'strategy': 'failed'}
             }
-        
-        # 3. 创建智能研究计划
-        search_results_list = self._parse_search_results(search_results)
+
+        # 3. 从 JSON 中提取结构化数据（真实 URLs）
+        search_results_list = self._extract_sources_from_json(search_results_json, max_results)
+
+        if not search_results_list:
+            return {
+                'findings': ['搜索结果解析失败'],
+                'sources': [],
+                'confidence': 0.0,
+                'research_plan': {'strategy': 'failed'}
+            }
+
+        # 4. 创建智能研究计划
         research_plan = self.selector.create_research_plan(query, search_results_list)
-        
+
+
         print(f"[EnhancedResearch] 研究计划: {len(research_plan['jina_targets'])} 个深度目标")
-        
-        # 4. 并行执行深度读取
+
+        # 5. 并行执行深度读取
         enhanced_sources = []
         if research_plan['jina_targets']:
             jina_tasks = []
@@ -112,6 +123,63 @@ class EnhancedResearchTool:
             }
         }
     
+    async def _get_serper_json(self, query: str, num_results: int) -> Optional[Dict]:
+        """
+        直接获取 SerpAPI 的 JSON 响应，避免文本解析
+        """
+        try:
+            import os
+            from .http_pool import optimized_http_get
+
+            SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY")
+            if not SERPAPI_API_KEY:
+                print("[ERROR] SERPAPI_API_KEY not found")
+                return None
+
+            params = {
+                'q': query,
+                'api_key': SERPAPI_API_KEY,
+                'num': num_results,
+                'engine': 'google'
+            }
+
+            url = "https://serpapi.com/search.json"
+            async with await optimized_http_get(url, params=params) as response:
+                result = await response.json()
+
+            return result
+
+        except Exception as e:
+            print(f"[ERROR] _get_serper_json failed: {e}")
+            return None
+
+    def _extract_sources_from_json(self, serper_json: Dict, max_results: int) -> List[Dict]:
+        """
+        从 SerpAPI 的 JSON 响应中提取真实的 URLs
+        这样可以确保 URLs 100% 准确，不需要从文本中解析
+        """
+        sources = []
+
+        # 提取 organic_results
+        organic_results = serper_json.get('organic_results', [])
+
+        for item in organic_results[:max_results]:
+            title = item.get('title', '')
+            link = item.get('link', '')
+            snippet = item.get('snippet', '')
+
+            # 只添加有效的 URL
+            if link and link.startswith('http'):
+                sources.append({
+                    'title': title[:200],  # 限制标题长度
+                    'url': link,  # 真实 URL，直接从 SerpAPI JSON 获取
+                    'snippet': snippet[:500] if snippet else ""
+                })
+
+        print(f"[DEBUG] _extract_sources_from_json: Extracted {len(sources)} sources with real URLs")
+
+        return sources
+
     async def _safe_jina_read(self, target: Dict) -> Optional[Source]:
         """安全的Jina读取"""
         try:
@@ -133,74 +201,95 @@ class EnhancedResearchTool:
         return None
     
     def _parse_search_results(self, search_results: str) -> List[Dict]:
-        """解析Serper搜索结果（从格式化文本中提取结构化数据）"""
+        """
+        解析Serper搜索结果（从格式化文本中提取结构化数据）
+
+        CRITICAL: 这个方法从 serperapi.format_search_result 的输出中提取真实 URLs
+        必须确保提取到的 URL 是完整的、真实的
+        """
         results = []
         lines = search_results.split('\n')
-        current_result = {}
-        
+
         i = 0
         while i < len(lines):
             line = lines[i].strip()
-            
-            # 寻找结果条目的开始（通常是序号形式如 "1. Title"）
-            if line and (line[0].isdigit() or line.startswith('##')):
-                # 提取标题
-                if '.' in line and not line.startswith('##'):
-                    # 格式: "1. Title text"
-                    title_start = line.find('.') + 1
-                    title = line[title_start:].strip()
-                elif line.startswith('##'):
-                    # 格式: "## Title text"
-                    title = line[2:].strip()
-                else:
-                    title = line
-                
-                # 查找下一行的URL
+
+            # 寻找结果条目的开始（通常是序号形式如 "1. **Title**"）
+            if line and line[0].isdigit() and '. ' in line:
+                # 提取标题 - 格式: "1. **Title text**"
+                title_start = line.find('.') + 1
+                title = line[title_start:].strip()
+                # 移除 markdown 格式
+                title = title.replace('**', '').strip()
+
+                # 查找后续行的 snippet 和 URL
                 url = ""
                 snippet = ""
                 j = i + 1
-                while j < len(lines):
+
+                while j < len(lines) and j < i + 10:  # 限制查找范围
                     next_line = lines[j].strip()
-                    if next_line.startswith('http'):
-                        url = next_line
-                    elif next_line and not next_line.startswith('http') and not (next_line[0].isdigit() if next_line else False):
-                        # 这是snippet内容
-                        if snippet:
-                            snippet += " " + next_line
-                        else:
+
+                    # 检查是否是 URL 行（格式: "   链接: https://..."）
+                    if '链接:' in next_line or 'URL:' in next_line or next_line.startswith('http'):
+                        # 提取 URL
+                        if '链接:' in next_line:
+                            url = next_line.split('链接:', 1)[1].strip()
+                        elif 'URL:' in next_line:
+                            url = next_line.split('URL:', 1)[1].strip()
+                        elif next_line.startswith('http'):
+                            url = next_line
+                    # 如果不是 URL，不是空行，不是下一个结果，就是 snippet
+                    elif next_line and not next_line[0].isdigit():
+                        if not snippet:
                             snippet = next_line
-                    elif next_line and (next_line[0].isdigit() if next_line else False):
-                        # 下一个结果开始了
+                        else:
+                            snippet += " " + next_line
+                    # 如果是下一个结果的开始，停止
+                    elif next_line and next_line[0].isdigit() and '. ' in next_line:
                         break
+
                     j += 1
-                
-                if title:  # 只添加有效的结果
+
+                # 只添加有 URL 的结果（确保有真实链接）
+                if title and url and url.startswith('http'):
                     results.append({
-                        'title': title,
-                        'url': url,
+                        'title': title[:200],  # 限制标题长度
+                        'url': url,  # 真实 URL
                         'snippet': snippet[:500] if snippet else ""  # 限制snippet长度
                     })
-                
-                i = j - 1  # 移动到处理过的位置
-            i += 1
-        
-        # 如果解析失败，尝试简单的行分割方式
+                elif title:
+                    # 记录没有 URL 的条目（用于调试）
+                    print(f"[WARN] _parse_search_results: Entry without URL: {title[:50]}")
+
+                i = j  # 移动到处理过的位置
+            else:
+                i += 1
+
+        print(f"[DEBUG] _parse_search_results: Extracted {len(results)} results from search output")
+
+        # 如果上述方法失败，尝试更简单的模式匹配
         if not results:
+            print(f"[WARN] _parse_search_results: Primary parsing failed, trying fallback")
             current_result = {}
             for line in lines:
                 line = line.strip()
                 if line.startswith('Title:'):
-                    if current_result:
+                    if current_result and current_result.get('url'):
                         results.append(current_result)
                     current_result = {'title': line[6:].strip()}
-                elif line.startswith('URL:'):
-                    current_result['url'] = line[4:].strip()
-                elif line.startswith('Snippet:'):
-                    current_result['snippet'] = line[8:].strip()
-            
-            if current_result:
+                elif line.startswith('URL:') or line.startswith('链接:'):
+                    url = line.split(':', 1)[1].strip()
+                    if url.startswith('http'):
+                        current_result['url'] = url
+                elif line.startswith('http') and 'url' not in current_result:
+                    current_result['url'] = line
+                elif line and not line.startswith('http') and 'title' in current_result:
+                    current_result['snippet'] = current_result.get('snippet', '') + ' ' + line
+
+            if current_result and current_result.get('url'):
                 results.append(current_result)
-        
+
         return results[:10]  # 最多返回10个结果
     
     def _merge_sources(self, serper_results: List[Dict], jina_sources: List[Source]) -> List[Source]:

@@ -66,6 +66,78 @@
 
 ---
 
+## 2026-01-15: 修复 Deepseek API 调用耗时问题 - 添加超时和诊断日志
+
+### 问题描述
+- 在服务器上，Deepseek API 调用（通过 LiteLLM）耗时很长
+- 从日志看，多个调用之间间隔 11 秒、2 秒等，说明单个调用耗时很长
+- 可能原因：网络延迟、API 响应慢、没有超时设置导致长时间等待
+
+### 修改内容
+
+1. **添加超时设置** (`src/clarifyagent/deepseek_model.py`):
+   - 在 `AsyncOpenAI` 和 `OpenAI` client 初始化时添加 `timeout` 参数
+   - 使用 `httpx.Timeout` 进行精细控制：
+     - `connect=10.0s`：连接超时
+     - `read=API_TIMEOUT`：读取超时（默认 30 秒）
+     - `write=10.0s`：写入超时
+   - 确保 API 调用不会无限期等待
+
+2. **添加详细的诊断日志** (`src/clarifyagent/deepseek_model.py`):
+   - 在每次 API 调用开始和结束时记录时间
+   - 记录请求大小（messages 总字符数）
+   - 记录响应大小（response 字符数）
+   - 记录调用耗时
+   - 如果耗时 > 10 秒，输出警告
+   - 如果耗时 > 5 秒，输出信息提示
+
+3. **改进错误处理** (`src/clarifyagent/deepseek_model.py`):
+   - 区分超时错误和其他错误
+   - 输出详细的错误信息（错误类型、耗时）
+
+### 技术细节
+
+**超时配置：**
+```python
+timeout_config = httpx.Timeout(
+    API_TIMEOUT,  # 总超时时间（默认 30 秒）
+    connect=10.0,  # 连接超时 10 秒
+    read=API_TIMEOUT,  # 读取超时
+    write=10.0  # 写入超时 10 秒
+)
+```
+
+**诊断日志示例：**
+```
+[DEBUG] Deepseek API call starting: model=deepseek-chat, messages_chars=1234, timeout=30s
+[DEBUG] Deepseek API call completed: 12.34s, response_chars=567
+[WARN] Deepseek API call took 12.34s (slow, >10s) - 可能是网络延迟或 API 响应慢
+```
+
+### 影响
+- ✅ API 调用有超时保护，避免无限期等待
+- ✅ 详细的诊断日志帮助定位慢速调用的原因
+- ✅ 可以识别网络延迟、API 响应慢等问题
+- ✅ 更好的错误处理和提示
+
+### 可能的原因分析
+
+如果调用仍然很慢，可能的原因：
+1. **网络延迟**：服务器到 Deepseek API 的网络延迟高
+2. **API 响应慢**：Deepseek API 本身处理时间长
+3. **请求内容大**：messages 内容很大，需要更长时间处理
+4. **API 限流**：可能触发了限流，导致排队等待
+5. **服务器资源**：服务器 CPU/内存不足，影响处理速度
+
+### 后续建议
+如果问题持续，可以：
+1. 检查网络连接质量（ping api.deepseek.com）
+2. 检查 API 响应时间（单独测试一个简单请求）
+3. 考虑使用更快的模型或减少请求内容大小
+4. 检查是否有 API 限流（查看 API 使用情况）
+
+---
+
 ## 2026-01-15: 修复 Runner.run 超时问题 - 增强诊断和错误处理
 
 ### 问题描述

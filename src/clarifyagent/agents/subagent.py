@@ -555,12 +555,13 @@ class Subagent:
 
                 print(f"[DEBUG] Subagent-{self.agent_id} Starting Runner.run with timeout={AGENT_EXECUTION_TIMEOUT}s, max_turns={MAX_AGENT_TURNS}")
                 
-                # 必做 2：Runner.run 改为"软退出" - 如果超过 30 秒就强制提前停止
+                # 必做 2：Runner.run 改为"软退出" - 如果超过设定时间就强制提前停止
                 # 不要等 timeout=180s
-                SOFT_EXIT_TIMEOUT = 30.0  # 30 秒软退出时间
+                # 从环境变量读取，默认 90 秒（比硬超时 180s 短，但给足够时间完成正常任务）
+                from ..config import SOFT_EXIT_TIMEOUT
                 
                 async def run_with_soft_exit():
-                    """Runner.run with soft exit after 30s"""
+                    """Runner.run with soft exit after SOFT_EXIT_TIMEOUT"""
                     runner_task = asyncio.create_task(
                         Runner.run(agent, input_prompt, max_turns=MAX_AGENT_TURNS)
                     )
@@ -574,7 +575,7 @@ class Subagent:
                         )
                         
                         if pending:
-                            # 超过 30 秒，强制提前停止
+                            # 超过设定时间，强制提前停止
                             elapsed = time.time() - runner_start
                             print(f"[WARN] Subagent-{self.agent_id} Force early stop after {elapsed:.1f}s (soft exit limit: {SOFT_EXIT_TIMEOUT}s)")
                             runner_task.cancel()
@@ -585,7 +586,7 @@ class Subagent:
                             # 返回 None 表示提前退出
                             return None
                         else:
-                            # 在 30 秒内完成，返回结果
+                            # 在设定时间内完成，返回结果
                             return runner_task.result()
                     except Exception as e:
                         elapsed = time.time() - runner_start

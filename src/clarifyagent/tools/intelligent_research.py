@@ -253,15 +253,15 @@ class IntelligentResearchSelector:
                 })
         
         # 根据 max_results 动态调整 Jina 目标数量
-        # 简单任务（max_results <= 8）: 最多 2-3 个 Jina 目标
-        # 标准任务（8 < max_results <= 15）: 最多 5 个
-        # 复杂任务（max_results > 15）: 最多 8 个
+        # 简单任务（max_results <= 8）: 最多 1-2 个 Jina 目标
+        # 标准任务（8 < max_results <= 15）: 最多 8 个
+        # 复杂任务（max_results > 15）: 最多 15 个
         if max_results <= 8:
-            max_jina_targets = min(3, len(plan['jina_targets']))  # 简单任务最多3个
+            max_jina_targets = min(0, len(plan['jina_targets']))  # 简单任务最多3个
         elif max_results <= 15:
-            max_jina_targets = min(5, len(plan['jina_targets']))  # 标准任务最多5个
+            max_jina_targets = min(0, len(plan['jina_targets']))  # 标准任务最多3个
         else:
-            max_jina_targets = min(8, len(plan['jina_targets']))  # 复杂任务最多8个
+            max_jina_targets = min(0, len(plan['jina_targets']))  # 复杂任务最多5个
         
         # 限制Jina调用数量以控制成本和时间
         plan['jina_targets'] = sorted(

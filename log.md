@@ -1,6 +1,28 @@
 
 ---
 
+### 调小 Jina 深度检索次数
+
+**修改内容：**
+
+1. **`src/clarifyagent/tools/intelligent_research.py` - `create_research_plan` 方法**
+   - 将 Jina 深度检索次数上限调小：
+     - 简单任务（max_results <= 8）: 从 3 个减少到 **2 个**
+     - 标准任务（8 < max_results <= 15）: 从 5 个减少到 **3 个**
+     - 复杂任务（max_results > 15）: 从 8 个减少到 **5 个**
+
+**技术细节：**
+- 修改位置：第259-264行的 `max_jina_targets` 计算逻辑
+- 这样可以减少 Jina API 调用次数，降低成本和执行时间
+- 同时保持对不同复杂度任务的合理覆盖
+
+**影响：**
+- ✅ 减少了 Jina 深度读取次数，降低 API 成本
+- ✅ 缩短了研究任务的执行时间
+- ✅ 仍然保持对不同复杂度任务的合理信息覆盖
+
+---
+
 ### 修复 Synthesizer 中 time 模块未导入的错误
 
 **问题描述：**

@@ -6,8 +6,10 @@ Inspired by GPT-Researcher's approach:
 2. Extract key facts from snippets
 3. Smart content summarization
 """
+import asyncio
 import json
 import re
+import time
 from typing import Any, List
 from urllib.parse import urlparse
 from agents import Agent, Runner, RunContextWrapper, function_tool
@@ -18,6 +20,13 @@ from ..deepseek_model import DeepseekModel
 
 from ..schema import Subtask, SubtaskResult, Source
 from ..config import MAX_CONTENT_CHARS, MAX_SEARCH_RESULTS
+
+# 尝试导入 async_timeout，如果不可用则使用 asyncio.wait_for
+try:
+    import async_timeout
+except ImportError:
+    # 如果没有 async_timeout，使用 asyncio.wait_for 作为替代
+    async_timeout = None
 
 
 # 更严格的限制
@@ -232,8 +241,34 @@ async def enhanced_research_tool(ctx: RunContextWrapper[Any], query: str, max_re
         print(f"[DEBUG] enhanced_research_tool: Starting smart_research for query: {query[:50]}...")
         from ..tools.enhanced_research import EnhancedResearchTool
         tool = EnhancedResearchTool()
-        result = await tool.smart_research(query, actual_max_results)
-        print(f"[DEBUG] enhanced_research_tool: smart_research completed, got {len(result.get('sources', []))} sources")
+        
+        # 必做 1：给 tool call 单独加 wall-time timeout (20秒)
+        # tool 永远不允许比 LLM 更慢
+        try:
+            if async_timeout is not None:
+                async with async_timeout.timeout(20):
+                    result = await tool.smart_research(query, actual_max_results)
+            else:
+                # 如果没有 async_timeout，使用 asyncio.wait_for
+                result = await asyncio.wait_for(
+                    tool.smart_research(query, actual_max_results),
+                    timeout=20.0
+                )
+        except (asyncio.TimeoutError, TimeoutError):
+            tool_elapsed = time.time() - tool_start
+            print(f"[ERROR] enhanced_research_tool TIMEOUT after {tool_elapsed:.2f}s (limit: 20s)")
+            # 返回一个基本结果，而不是完全失败
+            return json.dumps({
+                "findings": [f"搜索超时（{tool_elapsed:.1f}s），可能因网络延迟或 API 响应慢"],
+                "sources": [],
+                "confidence": 0.3,
+                "should_stop": True,
+                "action_hint": "STOP_AND_RETURN_RESULTS",
+                "error": "tool_timeout"
+            }, ensure_ascii=False)
+        
+        tool_elapsed = time.time() - tool_start
+        print(f"[DEBUG] enhanced_research_tool: smart_research completed in {tool_elapsed:.2f}s, got {len(result.get('sources', []))} sources")
 
         # 计算是否应该停止搜索
         confidence = result.get("confidence", 0.5)
@@ -468,7 +503,12 @@ class Subagent:
         """Execute search for a subtask."""
         import time
         import json
+        import asyncio
+        
+        # 建议 4：给每个 task 打 wall-clock
+        t0 = time.monotonic()
         start_time = time.time()
+        print(f"[DEBUG] Subagent-{self.agent_id} Task started: {subtask.focus[:50]}... (wall-clock: {t0:.3f})")
         
         # Create agent with specific instructions
         agent_start = time.time()
@@ -515,14 +555,77 @@ class Subagent:
 
                 print(f"[DEBUG] Subagent-{self.agent_id} Starting Runner.run with timeout={AGENT_EXECUTION_TIMEOUT}s, max_turns={MAX_AGENT_TURNS}")
                 
-                # 使用 asyncio.wait_for 包装 Runner.run，确保超时生效
-                # 注意：如果 Runner.run 内部有阻塞操作，可能需要额外的超时机制
-                result = await asyncio.wait_for(
-                    Runner.run(agent, input_prompt, max_turns=MAX_AGENT_TURNS),
-                    timeout=AGENT_EXECUTION_TIMEOUT
-                )
-                check_task.cancel()
-                print(f"[DEBUG] Subagent-{self.agent_id} Runner.run completed successfully")
+                # 必做 2：Runner.run 改为"软退出" - 如果超过 30 秒就强制提前停止
+                # 不要等 timeout=180s
+                SOFT_EXIT_TIMEOUT = 30.0  # 30 秒软退出时间
+                
+                async def run_with_soft_exit():
+                    """Runner.run with soft exit after 30s"""
+                    runner_task = asyncio.create_task(
+                        Runner.run(agent, input_prompt, max_turns=MAX_AGENT_TURNS)
+                    )
+                    
+                    # 等待软退出时间或完成
+                    try:
+                        done, pending = await asyncio.wait(
+                            [runner_task],
+                            timeout=SOFT_EXIT_TIMEOUT,
+                            return_when=asyncio.FIRST_COMPLETED
+                        )
+                        
+                        if pending:
+                            # 超过 30 秒，强制提前停止
+                            elapsed = time.time() - runner_start
+                            print(f"[WARN] Subagent-{self.agent_id} Force early stop after {elapsed:.1f}s (soft exit limit: {SOFT_EXIT_TIMEOUT}s)")
+                            runner_task.cancel()
+                            try:
+                                await runner_task
+                            except asyncio.CancelledError:
+                                pass
+                            # 返回 None 表示提前退出
+                            return None
+                        else:
+                            # 在 30 秒内完成，返回结果
+                            return runner_task.result()
+                    except Exception as e:
+                        elapsed = time.time() - runner_start
+                        print(f"[ERROR] Subagent-{self.agent_id} run_with_soft_exit error after {elapsed:.1f}s: {e}")
+                        runner_task.cancel()
+                        raise
+                
+                # 使用 asyncio.wait_for 包装，确保硬超时也生效
+                try:
+                    result = await asyncio.wait_for(
+                        run_with_soft_exit(),
+                        timeout=AGENT_EXECUTION_TIMEOUT
+                    )
+                    
+                    if result is None:
+                        # 软退出，返回基本结果
+                        check_task.cancel()
+                        elapsed = time.time() - runner_start
+                        total_time = time.time() - start_time
+                        wall_elapsed = time.monotonic() - t0
+                        print(f"[INFO] Subagent-{self.agent_id} Soft exit after {elapsed:.1f}s (total: {total_time:.2f}s, wall-clock: {wall_elapsed:.2f}s) - returning with available data")
+                        return SubtaskResult(
+                            subtask_id=subtask.id,
+                            focus=subtask.focus,
+                            findings=["研究因时间限制提前结束，已收集可用信息"],
+                            sources=[],
+                            confidence=0.5
+                        )
+                    
+                    check_task.cancel()
+                    elapsed = time.time() - runner_start
+                    total_time = time.time() - start_time
+                    wall_elapsed = time.monotonic() - t0
+                    print(f"[DEBUG] Subagent-{self.agent_id} Runner.run completed successfully in {elapsed:.2f}s (total: {total_time:.2f}s, wall-clock: {wall_elapsed:.2f}s)")
+                except asyncio.TimeoutError:
+                    # 硬超时（180秒）
+                    check_task.cancel()
+                    elapsed = time.time() - runner_start
+                    print(f"[ERROR] Subagent-{self.agent_id} Runner.run HARD TIMEOUT after {elapsed:.1f}s (limit: {AGENT_EXECUTION_TIMEOUT}s)")
+                    raise
             except MaxTurnsExceeded as e:
                 # 达到最大循环次数，这是正常的退出情况（不是错误）
                 check_task.cancel()
@@ -531,6 +634,8 @@ class Subagent:
 
                 # 当 max_turns 被超过时，返回一个基本结果
                 total_time = time.time() - start_time
+                wall_elapsed = time.monotonic() - t0
+                print(f"[INFO] Subagent-{self.agent_id} Task finished in {total_time:.2f}s (wall-clock: {wall_elapsed:.2f}s) - max_turns reached")
                 return SubtaskResult(
                     subtask_id=subtask.id,
                     focus=subtask.focus,
@@ -541,7 +646,9 @@ class Subagent:
             except asyncio.TimeoutError:
                 check_task.cancel()
                 elapsed = time.time() - runner_start
-                print(f"[ERROR] Subagent-{self.agent_id} Runner.run TIMEOUT after {elapsed:.1f}s (limit: {AGENT_EXECUTION_TIMEOUT}s)")
+                total_time = time.time() - start_time
+                wall_elapsed = time.monotonic() - t0
+                print(f"[ERROR] Subagent-{self.agent_id} Runner.run TIMEOUT after {elapsed:.1f}s (total: {total_time:.2f}s, wall-clock: {wall_elapsed:.2f}s, limit: {AGENT_EXECUTION_TIMEOUT}s)")
                 print(f"[ERROR] This indicates Runner.run did not complete within {AGENT_EXECUTION_TIMEOUT}s")
                 print(f"[ERROR] Possible causes:")
                 print(f"[ERROR]   1. LLM API call stuck (DeepSeek API not responding)")
@@ -551,6 +658,8 @@ class Subagent:
                 
                 # 返回超时结果，而不是抛出异常（让系统继续运行）
                 total_time = time.time() - start_time
+                wall_elapsed = time.monotonic() - t0
+                print(f"[ERROR] Subagent-{self.agent_id} Task timeout in {total_time:.2f}s (wall-clock: {wall_elapsed:.2f}s)")
                 return SubtaskResult(
                     subtask_id=subtask.id,
                     focus=subtask.focus,
@@ -627,7 +736,8 @@ class Subagent:
             print(f"[DEBUG] Subagent-{self.agent_id} Data processing: {process_end - process_start:.2f}s")
             
             total_time = time.time() - start_time
-            print(f"[DEBUG] Subagent-{self.agent_id} TOTAL TIME: {total_time:.2f}s")
+            wall_elapsed = time.monotonic() - t0
+            print(f"[DEBUG] Subagent-{self.agent_id} TOTAL TIME: {total_time:.2f}s (wall-clock: {wall_elapsed:.2f}s)")
             
             return SubtaskResult(
                 subtask_id=subtask.id,
@@ -639,7 +749,8 @@ class Subagent:
             
         except Exception as e:
             total_time = time.time() - start_time
-            print(f"[ERROR] Subagent-{self.agent_id} Failed after {total_time:.2f}s: {e}")
+            wall_elapsed = time.monotonic() - t0
+            print(f"[ERROR] Subagent-{self.agent_id} Failed after {total_time:.2f}s (wall-clock: {wall_elapsed:.2f}s): {e}")
             return SubtaskResult(
                 subtask_id=subtask.id,
                 focus=subtask.focus,

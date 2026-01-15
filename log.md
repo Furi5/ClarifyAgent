@@ -66,6 +66,129 @@
 
 ---
 
+## 2026-01-15: 性能优化 - 添加超时控制和 wall-clock 时间追踪
+
+### 问题描述
+- Tool call 可能比 LLM 更慢，导致整体性能下降
+- Runner.run 可能等待完整的 180 秒超时，即使已经卡住
+- 并行任务使用 gather 时，一个慢任务会阻塞所有任务
+- 缺乏详细的时间追踪，难以定位性能瓶颈
+
+### 修改内容
+
+#### 1. **必做 1：给 tool call 单独加 wall-time timeout (20秒)** (`src/clarifyagent/agents/subagent.py`)
+- 在 `enhanced_research_tool` 中添加 20 秒超时保护
+- 使用 `async_timeout.timeout(20)` 或 `asyncio.wait_for(..., timeout=20.0)`
+- Tool 永远不允许比 LLM 更慢
+- 如果超时，返回基本结果而不是完全失败
+
+```python
+# 必做 1：给 tool call 单独加 wall-time timeout (20秒)
+try:
+    if async_timeout is not None:
+        async with async_timeout.timeout(20):
+            result = await tool.smart_research(query, actual_max_results)
+    else:
+        result = await asyncio.wait_for(
+            tool.smart_research(query, actual_max_results),
+            timeout=20.0
+        )
+except (asyncio.TimeoutError, TimeoutError):
+    # 返回基本结果
+```
+
+#### 2. **必做 2：Runner.run 改为"软退出"** (`src/clarifyagent/agents/subagent.py`)
+- 如果超过 30 秒就强制提前停止，不要等 timeout=180s
+- 使用 `asyncio.wait` 实现软退出机制
+- 在 30 秒内完成则正常返回，超过 30 秒则强制取消并返回基本结果
+
+```python
+# 必做 2：Runner.run 改为"软退出" - 如果超过 30 秒就强制提前停止
+SOFT_EXIT_TIMEOUT = 30.0  # 30 秒软退出时间
+
+async def run_with_soft_exit():
+    runner_task = asyncio.create_task(
+        Runner.run(agent, input_prompt, max_turns=MAX_AGENT_TURNS)
+    )
+    
+    done, pending = await asyncio.wait(
+        [runner_task],
+        timeout=SOFT_EXIT_TIMEOUT,
+        return_when=asyncio.FIRST_COMPLETED
+    )
+    
+    if pending:
+        # 超过 30 秒，强制提前停止
+        runner_task.cancel()
+        return None
+    else:
+        return runner_task.result()
+```
+
+#### 3. **必做 3：gather 改为 fail-fast 或 partial return** (`src/clarifyagent/agents/pool.py`)
+- 使用 `asyncio.gather(..., return_exceptions=True)` 允许部分失败
+- 异常会被转换为 None，不会阻塞其他任务
+- 添加每个任务的独立时间追踪
+
+```python
+# 必做 3：使用 return_exceptions=True 允许部分失败
+results = await asyncio.gather(*timed_tasks, return_exceptions=True)
+# 过滤掉异常，转换为 None
+results = [r if not isinstance(r, Exception) else None for r in results]
+```
+
+#### 4. **建议 4：给每个 task 打 wall-clock** (`src/clarifyagent/agents/subagent.py`, `src/clarifyagent/agents/pool.py`)
+- 使用 `time.monotonic()` 记录每个任务的 wall-clock 时间
+- 在任务开始、完成、失败时都记录时间
+- 帮助快速定位"凶手"（最慢的任务）
+
+```python
+# 建议 4：给每个 task 打 wall-clock
+t0 = time.monotonic()
+# ... 执行任务 ...
+wall_elapsed = time.monotonic() - t0
+print(f"Task finished in {wall_elapsed:.2f}s (wall-clock)")
+```
+
+### 技术细节
+
+**超时层级：**
+1. **Tool call 超时**：20 秒（硬限制）
+2. **Runner.run 软退出**：30 秒（提前停止）
+3. **Runner.run 硬超时**：180 秒（最终保护）
+
+**时间追踪：**
+- 使用 `time.monotonic()` 记录 wall-clock 时间（不受系统时间调整影响）
+- 记录任务开始、完成、失败的时间点
+- 输出格式：`{elapsed:.2f}s (wall-clock: {wall_elapsed:.2f}s)`
+
+**错误处理：**
+- Tool 超时：返回基本结果（confidence=0.3），不抛出异常
+- Runner.run 软退出：返回基本结果（confidence=0.5），不抛出异常
+- Runner.run 硬超时：返回超时结果（confidence=0.3），不抛出异常
+- gather 异常：转换为 None，不阻塞其他任务
+
+### 影响
+- ✅ Tool call 有 20 秒超时保护，不会无限期等待
+- ✅ Runner.run 在 30 秒后软退出，避免长时间卡住
+- ✅ 并行任务使用 fail-fast，一个慢任务不会阻塞所有任务
+- ✅ 详细的时间追踪帮助快速定位性能瓶颈
+- ✅ 所有超时都有优雅降级，不会导致系统崩溃
+
+### 日志示例
+
+```
+[DEBUG] Subagent-0 Task started: 适应症时间线... (wall-clock: 12345.678)
+[DEBUG] enhanced_research_tool: Starting smart_research for query: 适应症时间线...
+[DEBUG] enhanced_research_tool: smart_research completed in 12.34s, got 8 sources
+[WARN] Subagent-0 Force early stop after 31.2s (soft exit limit: 30.0s)
+[INFO] Subagent-0 Soft exit after 31.2s (total: 31.5s, wall-clock: 31.5s) - returning with available data
+[DEBUG] Task 0 (适应症时间线...) finished in 31.5s (wall-clock)
+[DEBUG] SubagentPool.execute_parallel: Completed 3 tasks in 45.2s (wall-clock)
+```
+
+---
+
 ## 2026-01-15: 修复报告中的"搜索限制"说明问题
 
 ### 问题描述

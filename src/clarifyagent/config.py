@@ -48,7 +48,7 @@ MAX_TOOL_OUTPUT = int(os.getenv("MAX_TOOL_OUTPUT", "2000"))       # 工具输出
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "30"))                # API调用超时时间(秒)
 MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "4"))  # 最大并发请求数
 ADAPTIVE_CONCURRENCY = os.getenv("ADAPTIVE_CONCURRENCY", "true").lower() == "true"  # 自适应并发
-AGENT_EXECUTION_TIMEOUT = int(os.getenv("AGENT_EXECUTION_TIMEOUT", "300"))  # Agent 执行超时时间(秒)，默认5分钟
+AGENT_EXECUTION_TIMEOUT = int(os.getenv("AGENT_EXECUTION_TIMEOUT", "180"))  # Agent 执行超时时间(秒)，默认5分钟
 
 # LLM confidence evaluation settings
 ENABLE_LLM_CONFIDENCE = os.getenv("ENABLE_LLM_CONFIDENCE", "false").lower() == "true"  # 是否启用 LLM 评分

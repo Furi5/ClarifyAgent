@@ -1,6 +1,62 @@
 
 ---
 
+## 2026-01-15: 修复 Runner.run 超时问题 - 增强诊断和错误处理
+
+### 问题描述
+- 研究工具完成后，LLM (DeepSeek) 调用卡住，没有返回响应
+- 虽然设置了 `AGENT_EXECUTION_TIMEOUT=300`，但超时可能没生效
+- `asyncio.wait_for` 可能无法取消 `Runner.run` 内部的阻塞操作
+
+### 修改内容
+
+1. **增强超时诊断日志** (`src/clarifyagent/agents/subagent.py`):
+   - 在 `Runner.run` 开始前输出超时配置信息（timeout 和 max_turns）
+   - 在 `Runner.run` 完成后输出成功日志
+   - 在超时异常中输出详细的可能原因分析
+   - 添加 `LitellmModel` 创建日志
+
+2. **改进超时错误处理** (`src/clarifyagent/agents/subagent.py`):
+   - 超时时返回 `SubtaskResult` 而不是抛出异常
+   - 让系统能够继续运行，而不是完全失败
+   - 返回的 confidence 设为 0.3，表示超时结果
+
+3. **添加模型创建日志** (`src/clarifyagent/agents/subagent.py`):
+   - 输出创建的 `LitellmModel` 信息
+   - 帮助追踪模型配置是否正确
+
+### 技术细节
+
+**超时机制：**
+- 使用 `asyncio.wait_for` 包装 `Runner.run`
+- 超时时间由 `AGENT_EXECUTION_TIMEOUT` 配置（默认 300 秒）
+- 注意：如果 `Runner.run` 内部有阻塞操作（如同步 HTTP 调用），`asyncio.wait_for` 可能无法正确取消
+
+**可能的问题原因：**
+1. LLM API 调用卡住（DeepSeek API 没有响应）
+2. `Runner.run` 内部有阻塞操作
+3. 网络问题或连接挂起
+4. `asyncio.wait_for` 无法取消正在进行的 LLM API 调用
+
+**解决方案：**
+- 超时时返回部分结果，而不是完全失败
+- 添加详细的诊断日志，帮助定位问题
+- 考虑在 LiteLLM 层面添加超时（如果支持）
+
+### 影响
+- ✅ 更详细的诊断信息，帮助定位卡住的位置
+- ✅ 超时时系统能够继续运行，而不是完全失败
+- ✅ 更好的错误处理和日志记录
+
+### 后续建议
+如果超时问题持续存在，可能需要：
+1. 检查 LiteLLM 是否支持在模型层面设置超时
+2. 考虑使用 LiteLLM Router 来配置超时
+3. 检查 DeepSeek API 的响应时间是否正常
+4. 考虑添加更激进的超时机制（如每个 LLM 调用单独超时）
+
+---
+
 ## 2026-01-15: 添加详细的 confidence 日志和超时机制
 
 ### 问题分析

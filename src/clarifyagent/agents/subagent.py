@@ -438,10 +438,14 @@ class Subagent:
         print(f"[DEBUG] Subagent-{self.agent_id} using fast model for tool calls")
         
         model_str, api_key = get_litellm_model_config(fast_model.model)
+        # 注意：LitellmModel 可能不支持 timeout 参数，超时由 asyncio.wait_for 控制
+        # 如果 LiteLLM 内部有阻塞操作，可能需要额外的超时机制
         litellm_model = LitellmModel(
             model=model_str,
             api_key=api_key
+            # timeout 参数可能不被支持，使用 asyncio.wait_for 作为外层超时保护
         )
+        print(f"[DEBUG] Subagent-{self.agent_id} Created LitellmModel: {model_str}")
         
         return Agent(
             name=f"Subagent-{self.agent_id}",
@@ -509,11 +513,16 @@ class Subagent:
                 # 默认2：Turn1=搜索 → Turn2=生成输出（快速模式）
                 # 设为3-4：允许多次搜索（更全面但更慢）
 
+                print(f"[DEBUG] Subagent-{self.agent_id} Starting Runner.run with timeout={AGENT_EXECUTION_TIMEOUT}s, max_turns={MAX_AGENT_TURNS}")
+                
+                # 使用 asyncio.wait_for 包装 Runner.run，确保超时生效
+                # 注意：如果 Runner.run 内部有阻塞操作，可能需要额外的超时机制
                 result = await asyncio.wait_for(
                     Runner.run(agent, input_prompt, max_turns=MAX_AGENT_TURNS),
                     timeout=AGENT_EXECUTION_TIMEOUT
                 )
                 check_task.cancel()
+                print(f"[DEBUG] Subagent-{self.agent_id} Runner.run completed successfully")
             except MaxTurnsExceeded as e:
                 # 达到最大循环次数，这是正常的退出情况（不是错误）
                 check_task.cancel()
@@ -533,7 +542,22 @@ class Subagent:
                 check_task.cancel()
                 elapsed = time.time() - runner_start
                 print(f"[ERROR] Subagent-{self.agent_id} Runner.run TIMEOUT after {elapsed:.1f}s (limit: {AGENT_EXECUTION_TIMEOUT}s)")
-                raise Exception(f"Agent execution timeout after {AGENT_EXECUTION_TIMEOUT}s")
+                print(f"[ERROR] This indicates Runner.run did not complete within {AGENT_EXECUTION_TIMEOUT}s")
+                print(f"[ERROR] Possible causes:")
+                print(f"[ERROR]   1. LLM API call stuck (DeepSeek API not responding)")
+                print(f"[ERROR]   2. Blocking operation in Runner.run")
+                print(f"[ERROR]   3. Network issue or connection hang")
+                print(f"[ERROR]   4. asyncio.wait_for may not be able to cancel Runner.run if it's in a blocking call")
+                
+                # 返回超时结果，而不是抛出异常（让系统继续运行）
+                total_time = time.time() - start_time
+                return SubtaskResult(
+                    subtask_id=subtask.id,
+                    focus=subtask.focus,
+                    findings=[f"执行超时（{elapsed:.1f}s/{AGENT_EXECUTION_TIMEOUT}s），LLM API 调用可能卡住"],
+                    sources=[],
+                    confidence=0.3
+                )
             except Exception as e:
                 check_task.cancel()
                 raise

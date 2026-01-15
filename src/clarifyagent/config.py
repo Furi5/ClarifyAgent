@@ -74,7 +74,13 @@ JINA_SKIP_DOMAINS = [
     "nature.com",
     "clinicaltrials.gov",
     "asco.org",
-    "esmo.org"
+    "esmo.org",
+    # 403 Forbidden
+    "jto.org",
+    "mdpi.com",
+    "ilcn.org",
+    "drugs.com",
+    "tandfonline.com",
 ]
 
 

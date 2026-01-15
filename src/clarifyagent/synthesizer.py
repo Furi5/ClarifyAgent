@@ -13,10 +13,10 @@ from .config import MAX_CONTENT_CHARS
 from .prompts import SYNTHESIZER_SYSTEM_PROMPT
 
 # 限制传递给 Synthesizer 的内容大小
-MAX_FINDINGS_PER_FOCUS = 10  # 每个 focus 最多保留 5 条 findings
-MAX_SOURCES_PER_FOCUS = 5   # 每个 focus 最多保留 3 个 sources
-MAX_TOTAL_CHARS = 20000     # 总内容最大字符数
 
+MAX_TOTAL_CHARS = 20000     # 总内容最大字符数
+MAX_FINDINGS_PER_FOCUS = 15  # 从 10 增加到 15
+MAX_SOURCES_PER_FOCUS = 8    # 从 5 增加到 8
 
 def build_synthesizer(model: Union[AnthropicModel, DeepseekModel] = None) -> Agent:
     """Build the synthesizer agent with quality model."""

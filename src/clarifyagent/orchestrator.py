@@ -1,6 +1,7 @@
 """Orchestrator for coordinating the Deep Research workflow."""
-from typing import Optional, Callable
-from agents.extensions.models.litellm_model import LitellmModel
+from typing import Optional, Callable, Union
+from .anthropic_model import AnthropicModel
+from .deepseek_model import DeepseekModel
 
 from .schema import Plan, ResearchResult, Subtask
 from .clarifier import assess_input
@@ -15,10 +16,10 @@ class Orchestrator:
     
     def __init__(
         self,
-        clarifier_model: LitellmModel,
-        planner_model: LitellmModel,
-        executor_model: LitellmModel,
-        synthesizer_model: LitellmModel,
+        clarifier_model: Union[AnthropicModel, DeepseekModel],
+        planner_model: Union[AnthropicModel, DeepseekModel],
+        executor_model: Union[AnthropicModel, DeepseekModel],
+        synthesizer_model: Union[AnthropicModel, DeepseekModel],
         max_parallel: int = 5,
         progress_callback: Optional[Callable[[str, str, str], None]] = None
     ):

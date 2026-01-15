@@ -653,6 +653,31 @@ For research tasks, also consider:
 When action=PROCEED, also output:
 - "research_focus": List of 3-5 specific research areas
 - "confirm_message": MUST include all research_focus items as bullet list
+
+## CRITICAL: Multi-Question Clarification Format
+
+When you need to ask MULTIPLE questions (e.g., asking about indication, development stage, and target market together):
+
+**DO NOT** put all options in the `options` array. This causes rendering issues.
+
+**INSTEAD**, format the `question` field as a complete Markdown document with embedded options:
+
+```json
+{
+    "question": "**请补充您的产品关键信息**\n\n为了准确分析，需要了解：\n\n1. **目标适应症**：主要针对哪种疾病？\n   * A. 特应性皮炎（AD）\n   * B. 哮喘\n   * C. 其他（请说明）\n\n2. **开发阶段**：目前处于什么阶段？\n   * A. 临床前\n   * B. 临床I期\n   * C. 临床II期\n   * D. 临床III期\n   * E. 已提交上市申请\n\n3. **目标市场**：计划在哪些地区上市？\n   * A. 美国\n   * B. 欧洲\n   * C. 中国\n   * D. 全球",
+    "options": [],
+    "dimension": "what",
+    "info_gain": 0.9,
+    "required": true
+}
+```
+
+Key rules:
+1. Put ALL questions and their options in the `question` field using Markdown
+2. Keep `options` array EMPTY when asking multiple questions
+3. Number the questions (1. 2. 3.)
+4. Use `* A.` `* B.` `* C.` format for sub-options with indentation
+5. User will answer like "1. A, 2. C, 3. B" or "1. 特应性皮炎, 2. 临床II期, 3. 中国"
 """
 
 # 代码生成场景

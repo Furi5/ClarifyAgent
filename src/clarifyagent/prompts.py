@@ -137,6 +137,24 @@ Write professional, data-driven research reports tailored to the user's specific
 ## Output Format
 Output ONLY the research report in **Markdown format** (no JSON wrapper).
 
+**General Research**:
+→ Executive summary, key findings by topic, conclusion
+
+### 2. Write the Report
+- Write in **Chinese** (中文)
+- Use markdown formatting in the synthesis field
+- Structure should match the question type
+- Be concise but comprehensive
+- Include specific data points (numbers, dates, names)
+- DO NOT just list bullet points - write coherent paragraphs
+
+### 3. Quality Standards
+- Answer the actual question directly
+- Synthesize, don't just concatenate findings
+- Resolve conflicting information
+- Prioritize authoritative sources
+- Include specific facts and figures
+
 **Report Structure:**
 1. First line: Use the `goal` field from input as report title with `# ` (level-1 heading)
    Example: If goal is "GLP-1激动剂市场 - 竞争格局分析", write: `# GLP-1激动剂市场 - 竞争格局分析`
@@ -206,6 +224,71 @@ Example:
 - 使用 `###` 作为子标题（不需要编号）
 - 标题后必须有空行
 
+### 表格使用指南（CRITICAL）
+
+**何时使用表格：**
+当内容符合以下情况时，**必须使用表格**而不是列表或段落：
+1. **对比分析** - 需要对比 3 个或以上实体（产品/公司/药物/试验等）的多个维度
+2. **结构化数据** - 数据具有明确的列结构（如：产品名、公司、适应症、临床阶段、关键数据）
+3. **多维度信息** - 每个实体有 2 个或以上可对比的属性
+4. **数据汇总** - 需要清晰展示数值、日期、阶段等结构化信息
+
+**典型使用场景：**
+- 产品/药物对比（疗效、安全性、价格、适应症等）
+- 公司/企业对比（市场份额、管线数量、关键产品等）
+- 临床数据汇总（多个试验的疗效、安全性数据）
+- 研发管线对比（多个管线的阶段、适应症、公司等）
+- 市场数据（市场份额、增长率、销售额等）
+- 技术参数对比（多个技术方案的参数对比）
+
+**表格格式规范：**
+使用标准 Markdown 表格格式：
+```markdown
+| 列名1 | 列名2 | 列名3 | 列名4 |
+|-------|-------|-------|-------|
+| 数据1 | 数据2 | 数据3 | 数据4 |
+| 数据5 | 数据6 | 数据7 | 数据8 |
+```
+
+**表格设计原则：**
+1. **第一列通常是实体名称**（产品名/公司名/试验名等）
+2. **后续列是对比维度**（根据内容自动识别，如：疗效、安全性、价格、阶段等）
+3. **列数控制在 3-6 列**，避免过宽难以阅读
+4. **行数不限**，但超过 10 行时考虑是否需要分组
+5. **表格前添加简要说明**（1-2 句话说明表格内容）
+6. **表格后可以添加分析文字**（解读表格数据的关键洞察）
+
+**表格示例：**
+
+示例 1：产品对比
+```markdown
+主要 GLP-1 激动剂产品对比如下：
+
+| 产品名称 | 公司 | 适应症 | 临床阶段 | 关键优势 |
+|---------|------|--------|---------|---------|
+| Ozempic | 诺和诺德 | 2型糖尿病、肥胖 | 已上市 | 市场份额领先[[BioSpace](url)] |
+| Mounjaro | 礼来 | 2型糖尿病、肥胖 | 已上市 | 降糖效果更强[[PharmExec](url)] |
+| Wegovy | 诺和诺德 | 肥胖 | 已上市 | 首个获批的减肥适应症[[FDA](url)] |
+```
+
+示例 2：临床数据汇总
+```markdown
+关键临床试验数据汇总：
+
+| 试验名称 | 适应症 | 主要终点 | 结果 | 来源 |
+|---------|--------|---------|------|------|
+| SUSTAIN-6 | 2型糖尿病 | 心血管事件 | 风险降低26%[[NEJM](url)] | 诺和诺德 |
+| SURPASS-3 | 2型糖尿病 | HbA1c降低 | 降低2.0%[[Lancet](url)] | 礼来 |
+```
+
+**重要规则：**
+- ✅ **优先使用表格** - 当内容适合表格时，不要用列表或段落
+- ✅ **表格要完整** - 包含所有关键对比维度，不要遗漏重要信息
+- ✅ **数据要准确** - 表格中的数据必须来自 findings 中的真实数据
+- ✅ **引用要内联** - 在表格单元格中使用 `[[site](url)]` 格式引用来源
+- ❌ **不要创建空表格** - 确保表格有实际内容
+- ❌ **不要过度使用** - 不适合表格的内容（如单一实体描述、流程说明）不要强制用表格
+
 示例（goal = "GLP-1激动剂市场 - 竞争格局分析"）：
 ```markdown
 # GLP-1激动剂市场 - 竞争格局分析
@@ -252,8 +335,9 @@ GLP-1 激动剂市场呈现诺和诺德与礼来双寡头主导格局，Ozempic 
 - [ ] 报告包含 4-6 个主要章节，使用中文编号（## 一、, ## 二、, ## 三、）
 - [ ] 每个章节标题准确反映内容，不是死板套用固定名称
 - [ ] 包含具体数据（数字、日期、公司名称、产品名称）
+- [ ] **对比分析内容使用了表格**（如产品对比、公司对比、临床数据汇总等）
 - [ ] 有序列表使用递增序号（1, 2, 3...）
-- [ ] 使用 [[site](url)] 格式进行内联引用
+- [ ] 使用 [[site](url)] 格式进行内联引用（包括表格中的引用）
 - [ ] 所有引用 URL 来自输入数据的 findings[].sources[]
 - [ ] 没有空泛的结尾套话
 """

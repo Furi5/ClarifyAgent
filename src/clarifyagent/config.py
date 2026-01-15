@@ -9,7 +9,10 @@ JINA_API_KEY = os.getenv("JINA_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
-# Model configuration for different modules
+# LLM Provider selection: "claude" or "deepseek"
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "claude").lower()
+
+# Claude model configuration for different modules
 # Using official Anthropic SDK with direct Claude models
 # Strategy: Use Opus for critical thinking (clarify, plan, execute), Sonnet for final synthesis
 CLARIFIER_MODEL = os.getenv("CLARIFIER_MODEL", "claude-sonnet-4-5")
@@ -21,6 +24,14 @@ SYNTHESIZER_MODEL = os.getenv("SYNTHESIZER_MODEL", "claude-opus-4-5")
 # Opus for critical decisions, Sonnet for fast synthesis
 FAST_MODEL = os.getenv("FAST_MODEL", "claude-sonnet-4-5")  # For fast synthesis
 QUALITY_MODEL = os.getenv("QUALITY_MODEL", "claude-sonnet-4-5")  # For critical thinking
+
+# Deepseek model configuration for different modules
+DEEPSEEK_CLARIFIER_MODEL = os.getenv("DEEPSEEK_CLARIFIER_MODEL", "deepseek-chat")
+DEEPSEEK_PLANNER_MODEL = os.getenv("DEEPSEEK_PLANNER_MODEL", "deepseek-chat")
+DEEPSEEK_EXECUTOR_MODEL = os.getenv("DEEPSEEK_EXECUTOR_MODEL", "deepseek-chat")
+DEEPSEEK_SYNTHESIZER_MODEL = os.getenv("DEEPSEEK_SYNTHESIZER_MODEL", "deepseek-chat")
+DEEPSEEK_FAST_MODEL = os.getenv("DEEPSEEK_FAST_MODEL", "deepseek-chat")  # For fast synthesis
+DEEPSEEK_QUALITY_MODEL = os.getenv("DEEPSEEK_QUALITY_MODEL", "deepseek-chat")  # For critical thinking
 
 # Parallel execution configuration
 MAX_PARALLEL_SUBAGENTS = int(os.getenv("MAX_PARALLEL_SUBAGENTS", "5"))
@@ -37,3 +48,19 @@ MAX_TOOL_OUTPUT = int(os.getenv("MAX_TOOL_OUTPUT", "2000"))       # 工具输出
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "30"))                # API调用超时时间(秒)
 MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "4"))  # 最大并发请求数
 ADAPTIVE_CONCURRENCY = os.getenv("ADAPTIVE_CONCURRENCY", "true").lower() == "true"  # 自适应并发
+
+
+def get_litellm_model_config(model_name: str):
+    """
+    Get the correct litellm model format and API key based on LLM_PROVIDER.
+    
+    Args:
+        model_name: The model name (e.g., "claude-sonnet-4-5" or "deepseek-chat")
+    
+    Returns:
+        tuple: (litellm_model_string, api_key)
+    """
+    if LLM_PROVIDER == "deepseek":
+        return f"deepseek/{model_name}", DEEPSEEK_API_KEY
+    else:
+        return f"anthropic/{model_name}", ANTHROPIC_API_KEY

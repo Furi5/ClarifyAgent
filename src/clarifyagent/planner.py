@@ -3,7 +3,9 @@ import json
 from typing import List
 from agents import Agent, Runner
 from agents.extensions.models.litellm_model import LitellmModel
+from typing import Union
 from .anthropic_model import AnthropicModel
+from .deepseek_model import DeepseekModel
 
 from .schema import Task, Subtask
 
@@ -65,14 +67,14 @@ Context: ["销售预测和竞争决策分析", "适应症：特应性皮炎", "�
 """
 
 
-def build_planner(model: AnthropicModel) -> Agent:
+def build_planner(model) -> Agent:
     """Build the planner (orchestrator) agent."""
     # Use LitellmModel wrapper for agents framework compatibility
-    # litellm will use ANTHROPIC_API_KEY from environment
-    from .config import ANTHROPIC_API_KEY
+    from .config import get_litellm_model_config
+    model_str, api_key = get_litellm_model_config(model.model)
     litellm_model = LitellmModel(
-        model=f"anthropic/{model.model}",
-        api_key=ANTHROPIC_API_KEY
+        model=model_str,
+        api_key=api_key
     )
     return Agent(
         name="Planner",
@@ -94,7 +96,7 @@ def _extract_json(s: str) -> dict:
 
 
 async def decompose_task(
-    model: AnthropicModel,
+    model: Union[AnthropicModel, DeepseekModel],
     task: Task
 ) -> List[Subtask]:
     """

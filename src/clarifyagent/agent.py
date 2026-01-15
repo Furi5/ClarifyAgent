@@ -1,10 +1,11 @@
-from typing import Any
+from typing import Any, Union
 from agents import Agent, RunContextWrapper, function_tool, set_tracing_disabled
 
 import os
 
 from .tools.serperapi import web_search
 from .anthropic_model import AnthropicModel
+from .deepseek_model import DeepseekModel
 # from .tools.jina import jina_read  # 已禁用以提升性能
 
 set_tracing_disabled(True)
@@ -27,8 +28,8 @@ async def web_search_tool(ctx: RunContextWrapper[Any], query: str) -> dict:
 #     return await jina_read(url=url)  # 已禁用以提升性能
 
 def build_agent() -> Agent:
-    from .anthropic_model import build_anthropic_model
-    llm = build_anthropic_model("fast")
+    from .agent import build_model
+    llm = build_model("fast")
 
     return Agent(
         name="ClarifyAgent",
@@ -45,13 +46,24 @@ def build_agent() -> Agent:
 
 
 
-def build_model(model_type: str = "standard") -> AnthropicModel:
+def build_model(model_type: str = "standard") -> Union[AnthropicModel, DeepseekModel]:
     """
-    Build the Anthropic model adapter with performance optimization.
+    Build the LLM model adapter with performance optimization.
+    Supports both Anthropic (Claude) and Deepseek models based on LLM_PROVIDER config.
 
     Args:
-        model_type: "fast" for tool calls, "quality" for synthesis, "standard" for default
-    """
-    from .anthropic_model import build_anthropic_model
+        model_type: "fast" for tool calls, "quality" for synthesis, "standard" for default,
+                   "clarifier", "planner", "executor", "synthesizer" for specific modules
 
-    return build_anthropic_model(model_type)
+    Returns:
+        AnthropicModel or DeepseekModel instance based on LLM_PROVIDER configuration
+    """
+    from .config import LLM_PROVIDER
+    from .anthropic_model import build_anthropic_model
+    from .deepseek_model import build_deepseek_model
+
+    if LLM_PROVIDER == "deepseek":
+        return build_deepseek_model(model_type)
+    else:
+        # Default to Claude
+        return build_anthropic_model(model_type)

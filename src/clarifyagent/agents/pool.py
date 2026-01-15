@@ -1,7 +1,8 @@
 """Subagent Pool for managing and executing parallel tasks."""
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Union
 from ..anthropic_model import AnthropicModel
+from ..deepseek_model import DeepseekModel
 
 from .subagent import Subagent
 from ..schema import Subtask, SubtaskResult
@@ -10,7 +11,7 @@ from ..schema import Subtask, SubtaskResult
 class SubagentPool:
     """Pool of Subagents for parallel execution."""
 
-    def __init__(self, model: AnthropicModel, max_parallel: int = 5):
+    def __init__(self, model: Union[AnthropicModel, DeepseekModel], max_parallel: int = 5):
         self.model = model
         self.max_parallel = max_parallel
         self._subagents: List[Subagent] = []

@@ -1,6 +1,7 @@
 """Executor module for parallel task execution."""
-from typing import List, Optional
+from typing import List, Optional, Union
 from .anthropic_model import AnthropicModel
+from .deepseek_model import DeepseekModel
 
 from .schema import Subtask, SubtaskResult
 from .agents.pool import SubagentPool
@@ -10,7 +11,7 @@ from .agents.subagent import Subagent
 class Executor:
     """Executor for parallel research task execution."""
 
-    def __init__(self, model: AnthropicModel, max_parallel: int = 5):
+    def __init__(self, model: Union[AnthropicModel, DeepseekModel], max_parallel: int = 5):
         self.model = model
         self.pool = SubagentPool(model, max_parallel=max_parallel)
         self._single_agent: Optional[Subagent] = None

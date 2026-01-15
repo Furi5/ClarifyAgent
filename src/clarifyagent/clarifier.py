@@ -146,11 +146,22 @@ def _convert_to_plan(result: ClarifyResult, task_draft: Dict) -> Plan:
     clarification = None
     if result.questions:
         first_q = result.questions[0]
+        question_text = first_q.question
+        options = first_q.options
+        
+        # 检测是否是多问题格式（包含 "1." 和 "2." 这样的编号）
+        # 如果是多问题，强制清空 options，让前端渲染 Markdown 格式
+        import re
+        has_multiple_questions = bool(re.search(r'\n\s*1\s*[.、]', question_text) and 
+                                      re.search(r'\n\s*2\s*[.、]', question_text))
+        if has_multiple_questions:
+            options = []  # 多问题时不使用选项按钮
+        
         clarification = {
-            "question": first_q.question,
-            "options": first_q.options,
+            "question": question_text,
+            "options": options,
             "missing_info": first_q.dimension or "project_details",
-            "open_ended": len(first_q.options) == 0,
+            "open_ended": len(options) == 0,
         }
     
     # 构建 Plan
@@ -168,7 +179,7 @@ def _convert_to_plan(result: ClarifyResult, task_draft: Dict) -> Plan:
 
 
 async def assess_input(
-    model: AnthropicModel,
+    model,
     messages: list[dict],
     task_draft: dict,
     enable_pre_search: bool = True
@@ -403,7 +414,7 @@ async def assess_input(
     return plan
 
 
-def build_clarifier(model: AnthropicModel):
+def build_clarifier(model):
     """构建澄清器（向后兼容，实际不再使用）"""
     # 这个函数保留是为了向后兼容，实际逻辑在 assess_input 中
     return None

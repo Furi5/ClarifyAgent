@@ -3,7 +3,9 @@ import json
 from typing import Dict, List
 from agents import Agent, Runner
 from agents.extensions.models.litellm_model import LitellmModel
+from typing import Union
 from .anthropic_model import AnthropicModel
+from .deepseek_model import DeepseekModel
 
 from .schema import SubtaskResult, ResearchResult, Citation, Source
 from .config import MAX_CONTENT_CHARS
@@ -15,7 +17,7 @@ MAX_SOURCES_PER_FOCUS = 5   # 每个 focus 最多保留 3 个 sources
 MAX_TOTAL_CHARS = 20000     # 总内容最大字符数
 
 
-def build_synthesizer(model: AnthropicModel = None) -> Agent:
+def build_synthesizer(model: Union[AnthropicModel, DeepseekModel] = None) -> Agent:
     """Build the synthesizer agent with quality model."""
     if model is None:
         from .agent import build_model
@@ -23,11 +25,11 @@ def build_synthesizer(model: AnthropicModel = None) -> Agent:
         print("[DEBUG] Synthesizer using quality model for final synthesis")
 
     # Use LitellmModel wrapper for agents framework compatibility
-    # litellm will use ANTHROPIC_API_KEY from environment
-    from .config import ANTHROPIC_API_KEY
+    from .config import get_litellm_model_config
+    model_str, api_key = get_litellm_model_config(model.model)
     litellm_model = LitellmModel(
-        model=f"anthropic/{model.model}",
-        api_key=ANTHROPIC_API_KEY
+        model=model_str,
+        api_key=api_key
     )
     return Agent(
         name="Synthesizer",
@@ -64,7 +66,7 @@ def truncate_findings(subtask_results: List[SubtaskResult]) -> Dict:
 
 
 async def synthesize_results(
-    model: AnthropicModel,
+    model: Union[AnthropicModel, DeepseekModel],
     goal: str,
     research_focus: List[str],
     subtask_results: List[SubtaskResult]

@@ -79,34 +79,188 @@ def render_clarification(plan) -> tuple[str, list[str]]:
     return question, options
 
 
-def render_plan(plan, subtasks=None) -> str:
+def render_plan(plan, subtasks=None, user_context=None) -> str:
     """
     Render plan for confirmation.
-
+    
+    格式：
+    **研究主题**
+    目标描述
+    
+    **研究范围**
+    - 字段：值
+    
+    **研究方向**
+    1. 方向1
+    2. 方向2
+    
+    确认提示
+    
     Args:
         plan: Plan object from Clarifier
         subtasks: Optional list of Subtask objects from Planner
+        user_context: Optional dict with:
+            - original_request: 用户的原始请求（不展示）
+            - parsed_clarification_info: 结构化的澄清信息
     """
     task = plan.task
-    lines = [f"我理解你想做：**{task.goal}**", ""]
+    lines = []
     
-    # if getattr(task, "research_focus", None) and task.research_focus:
-    #     lines.append("### 计划重点覆盖：")
-    #     for f in task.research_focus:
-    #         lines.append(f"- {f}")
-    #     lines.append("")
-
-    # if getattr(plan, "assumptions", None) and plan.assumptions:
-    #     lines.append(f"- {plan.assumptions}")
-    #     lines.append("")
-
-    # lines.append("---")
-    # lines.append("")
-    lines.append(plan.confirm_prompt or "✅ 确认开始研究？")
+    # 1. 研究主题（精简的一句话目标）
+    lines.append("**研究主题**")
+    lines.append(task.goal)
     lines.append("")
-    # lines.append("💡 提示：如需修改计划，请直接描述您的需求")
+    
+    # 2. 研究范围（结构化展示用户提供的信息）
+    if user_context:
+        parsed_info = user_context.get("parsed_clarification_info", {})
+        if parsed_info:
+            lines.append("**研究范围**")
+            for field_name, value in parsed_info.items():
+                if value:
+                    lines.append(f"- {field_name}：{value}")
+            lines.append("")
+    
+    # 3. 研究方向（subtasks）
+    if subtasks:
+        lines.append("**研究方向**")
+        for i, st in enumerate(subtasks, 1):
+            lines.append(f"{i}. {st.focus}")
+        lines.append("")
+    
+    # 4. 确认提示
+    lines.append(plan.confirm_prompt or "确认开始研究，或告诉我需要调整的地方？")
 
     return "\n".join(lines)
+
+
+def extract_user_context(messages: list, task_draft: dict = None) -> dict:
+    """
+    从对话历史中提取用户上下文信息
+    
+    Args:
+        messages: 对话历史列表
+        task_draft: 任务草稿，包含澄清问答记录
+    
+    Returns:
+        dict with:
+            - original_request: 用户的第一个请求
+            - parsed_clarification_info: 结构化的澄清信息（字段名 -> 值）
+    """
+    if not messages:
+        return {}
+    
+    original_request = ""
+    parsed_clarification_info = {}
+    
+    # 找到第一个用户消息作为原始请求
+    for msg in messages:
+        if msg.get("role") == "user":
+            original_request = msg.get("content", "")
+            break
+    
+    # 从 task_draft 中获取结构化的澄清信息
+    if task_draft:
+        parsed_info = task_draft.get("parsed_clarification_info", {})
+        if parsed_info:
+            parsed_clarification_info = parsed_info
+    
+    return {
+        "original_request": original_request,
+        "parsed_clarification_info": parsed_clarification_info
+    }
+    
+
+def parse_clarification_answer(question_text: str, user_answer: str, options: list = None) -> dict:
+    """
+    解析用户对澄清问题的回答，提取结构化信息
+    
+    Args:
+        question_text: 澄清问题的原始文本（包含问题列表）
+        user_answer: 用户的回答
+        options: 问题的选项列表（如果有）
+    
+    Returns:
+        dict: 字段名 -> 值 的映射
+    """
+    import re
+    
+    result = {}
+    
+    # 从问题文本中提取所有问题及其选项
+    # 匹配格式如：1. 目标适应症：xxx 或 1. **目标适应症**：xxx
+    question_pattern = r'(\d+)\s*[.、]\s*\*?\*?([^:：\n*]+)\*?\*?\s*[:：]'
+    questions_found = re.findall(question_pattern, question_text)
+    
+    # 构建问题编号到字段名的映射
+    num_to_field = {}
+    for num, field_name in questions_found:
+        # 清理字段名
+        field_name = field_name.strip()
+        field_name = re.sub(r'\s*[（(].*?[)）]', '', field_name)  # 移除括号内容
+        field_name = field_name.strip()
+        num_to_field[int(num)] = field_name
+    
+    # 从问题文本中提取每个问题的选项
+    # 匹配格式如：* A. 特应性皮炎（AD）或 - A. 特应性皮炎
+    question_options = {}
+    current_q_num = None
+    
+    for line in question_text.split('\n'):
+        line = line.strip()
+        
+        # 检测问题编号
+        q_match = re.match(r'^(\d+)\s*[.、]', line)
+        if q_match:
+            current_q_num = int(q_match.group(1))
+            question_options[current_q_num] = {}
+            continue
+        
+        # 检测选项
+        if current_q_num:
+            opt_match = re.match(r'^[\*\-•]\s*([A-Ea-e])\s*[.、:：]\s*(.+)', line)
+            if opt_match:
+                letter = opt_match.group(1).upper()
+                value = opt_match.group(2).strip()
+                question_options[current_q_num][letter] = value
+    
+    # 解析用户回答
+    # 先按问题编号分割，支持格式如：
+    # "1. A。2. 临床II期；3. 更高选择性"
+    # "1. A, 2. B, 3. xxx"
+    
+    # 使用正则按 "数字." 或 "数字、" 分割，但保留分隔符
+    parts = re.split(r'(?=\d+\s*[.、:：])', user_answer)
+    
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        
+        # 移除末尾的句号和分隔符
+        part = re.sub(r'[。，,;；]+$', '', part)
+        
+        # 匹配 "1. A" 或 "1. 特应性皮炎" 格式
+        match = re.match(r'^(\d+)\s*[.、:：]\s*(.+)$', part)
+        if match:
+            num = int(match.group(1))
+            value = match.group(2).strip()
+            
+            # 移除值末尾的标点
+            value = re.sub(r'[。，,;；]+$', '', value)
+            
+            # 获取字段名
+            field_name = num_to_field.get(num, f"问题{num}")
+            
+            # 如果是单字母（选项），转换为实际值
+            if len(value) == 1 and value.upper() in 'ABCDE':
+                letter = value.upper()
+                if num in question_options and letter in question_options[num]:
+                    value = question_options[num][letter]
+            
+            result[field_name] = value
+    
+    return result
 
 # ============== 修改 web.py 中的 render_research_result 函数 ==============
 # 将下面的函数替换 web.py 中原来的 render_research_result 函数 (约第 101-139 行)
@@ -655,12 +809,23 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                 # 将用户回答与原始问题关联，更新到 task_draft
                 add_user(state, user_message)  # 保留用户的原始输入，不添加标签
                 
+                # 获取问题文本用于解析
+                question_text = pending_plan.clarification.get("question", "")
+                
                 if missing_info in ("pipeline_details", "project_details"):
                     # 解析用户提供的项目/产品信息，补充到 task_draft
                     state.task_draft["project_info"] = user_message
                     # 尝试从用户回答中提取关键信息
                     original_goal = state.task_draft.get("goal", "")
                     state.task_draft["goal"] = f"{original_goal}（{user_message}）"
+                    
+                    # 解析结构化信息
+                    parsed_info = parse_clarification_answer(question_text, user_message, options)
+                    if parsed_info:
+                        if "parsed_clarification_info" not in state.task_draft:
+                            state.task_draft["parsed_clarification_info"] = {}
+                        state.task_draft["parsed_clarification_info"].update(parsed_info)
+                        
                 elif missing_info == "research_topic":
                     state.task_draft["goal"] = user_message
                 else:
@@ -668,9 +833,16 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                     if "clarification_responses" not in state.task_draft:
                         state.task_draft["clarification_responses"] = []
                     state.task_draft["clarification_responses"].append({
-                        "question": pending_plan.clarification.get("question", ""),
+                        "question": question_text,
                         "answer": user_message
                     })
+                    
+                    # 解析结构化信息
+                    parsed_info = parse_clarification_answer(question_text, user_message, options)
+                    if parsed_info:
+                        if "parsed_clarification_info" not in state.task_draft:
+                            state.task_draft["parsed_clarification_info"] = {}
+                        state.task_draft["parsed_clarification_info"].update(parsed_info)
                 
                 # #region agent log
                 try:
@@ -793,8 +965,11 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                 # 保存 subtasks 到 session
                 session["planned_subtasks"] = subtasks
 
+                # 提取用户上下文
+                user_context = extract_user_context(state.messages, state.task_draft)
+                
                 # 渲染详细计划
-                msg = render_plan(plan, subtasks=subtasks)
+                msg = render_plan(plan, subtasks=subtasks, user_context=user_context)
                 add_assistant(state, msg)
                 session["pending_plan"] = plan
 
@@ -803,7 +978,8 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
             except Exception as e:
                 logger.exception(f"Planning error: {e}")
                 # 降级：不展示详细计划
-                msg = render_plan(plan)
+                user_context = extract_user_context(state.messages, state.task_draft)
+                msg = render_plan(plan, user_context=user_context)
                 add_assistant(state, msg)
                 session["pending_plan"] = plan
                 yield f"data: {json.dumps({'type': 'result', 'response_type': 'confirm_plan', 'message': msg})}\n\n"

@@ -12,23 +12,28 @@ from typing import Optional
 
 
 def render_plan(plan) -> str:
-    """Render plan for display."""
+    """Render plan for display - Jobs style: every word earns its place."""
     task = plan.task
-    lines = [f"我理解你想做：**{task.goal}**", ""]
+    lines = []
     
-    # if getattr(task, "research_focus", None):
-    # if task.research_focus:
-        # lines.append("计划重点覆盖：")
-        # for f in task.research_focus:
-        #     lines.append(f"• {f}")
-        # lines.append("")
+    # 标题：简洁有力
+    lines.append(f"**{task.goal}**")
+    lines.append("")
     
-    # if getattr(plan, "assumptions", None):
-    # if plan.assumptions:
-    #     lines.append("（我的假设：" + "；".join(plan.assumptions) + "）")
-    #     lines.append("")
+    # 展示研究方向
+    if getattr(task, "research_focus", None) and task.research_focus:
+        lines.append("研究方向：")
+        for i, focus in enumerate(task.research_focus, 1):
+            lines.append(f"{i}. {focus}")
+        lines.append("")
     
-    lines.append(plan.confirm_prompt or "这样可以开始吗？")
+    # 假设
+    if getattr(plan, "assumptions", None) and plan.assumptions:
+        lines.append(f"*假设：{'、'.join(plan.assumptions)}*")
+        lines.append("")
+    
+    # 确认
+    lines.append(plan.confirm_prompt or "需要调整吗？")
     return "\n".join(lines)
 
 

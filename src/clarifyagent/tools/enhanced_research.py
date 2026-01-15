@@ -70,8 +70,8 @@ class EnhancedResearchTool:
                 'research_plan': {'strategy': 'failed'}
             }
 
-        # 4. 创建智能研究计划
-        research_plan = self.selector.create_research_plan(query, search_results_list)
+        # 4. 创建智能研究计划（传递 max_results 以动态调整 Jina 目标数量）
+        research_plan = self.selector.create_research_plan(query, search_results_list, max_results)
 
 
         print(f"[EnhancedResearch] 研究计划: {len(research_plan['jina_targets'])} 个深度目标")
@@ -112,14 +112,20 @@ class EnhancedResearchTool:
         
         return {
             'findings': findings,
-            'sources': all_sources[:8],  # 限制源数量
+            'sources': all_sources,  # Return all sources, let LLM decide what to use
             'confidence': confidence,
             'research_plan': research_plan,
             'performance': {
                 'total_time': total_time,
                 'serper_time': serper_time,
                 'jina_time': jina_time if 'jina_time' in locals() else 0,
-                'enhanced_sources': len(enhanced_sources)
+                'enhanced_sources': len(enhanced_sources),
+                'total_sources': len(all_sources)
+            },
+            'search_metadata': {
+                'num_search_results': len(search_results_list),
+                'num_jina_reads': len(enhanced_sources),
+                'scenario': scenario.value
             }
         }
     

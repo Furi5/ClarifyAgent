@@ -12,7 +12,9 @@ from typing import Any, List
 from urllib.parse import urlparse
 from agents import Agent, Runner, RunContextWrapper, function_tool
 from agents.extensions.models.litellm_model import LitellmModel
+from typing import Union
 from ..anthropic_model import AnthropicModel
+from ..deepseek_model import DeepseekModel
 
 from ..schema import Subtask, SubtaskResult, Source
 from ..config import MAX_CONTENT_CHARS, MAX_SEARCH_RESULTS
@@ -168,7 +170,7 @@ def clean_url(url: str) -> str:
 
 # Wrap tools as function_tool for Agent
 @function_tool
-async def enhanced_research_tool(ctx: RunContextWrapper[Any], query: str) -> str:
+async def enhanced_research_tool(ctx: RunContextWrapper[Any], query: str, max_results: int = None) -> str:
     """
     Enhanced research combining fast Serper search with intelligent Jina deep reading.
 
@@ -181,6 +183,17 @@ async def enhanced_research_tool(ctx: RunContextWrapper[Any], query: str) -> str
     - Intelligent scenario detection (synthesis routes, pipeline evaluation, clinical research)
     - Selective deep reading of high-value sources (academic papers, patents, regulatory docs)
     - Scenario-driven information extraction
+
+    PARAMETERS:
+    - query: Research query (required)
+    - max_results: Number of search results to retrieve (optional, default: 10)
+      **YOU MUST SPECIFY THIS PARAMETER** based on task complexity:
+        - Simple fact lookup (e.g., "What is X?", "When was Y approved?"): Use max_results=6
+        - Standard research (e.g., "Overview of X"): Use max_results=12
+        - Comprehensive analysis (e.g., "Compare multiple X"): Use max_results=18
+        - Deep investigation (e.g., "Complete pipeline analysis"): Use max_results=22
+      
+      **CRITICAL**: Always provide max_results parameter. Do NOT omit it. Choose the value based on how complex your research task is.
 
     OUTPUT FORMAT:
     Returns JSON with:
@@ -197,17 +210,28 @@ async def enhanced_research_tool(ctx: RunContextWrapper[Any], query: str) -> str
     - URLs in sources are REAL URLs from search results - use them DIRECTLY
     - DO NOT modify, shorten, or reconstruct these URLs
     - Copy the entire sources array to your output JSON
-    - Return your analysis immediately after this single enhanced search
+    - Analyze the results and decide if you need more searches based on information sufficiency
     """
     import time
     import json
     tool_start = time.time()
-    print(f"[DEBUG] Enhanced research tool called with query: {query[:50]}...")
+    
+    # Use LLM-specified max_results or default
+    actual_max_results = max_results if max_results is not None else MAX_SEARCH_RESULTS
+    
+    # #region agent log
+    try:
+        with open('/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'LLM_SEARCH', 'location': 'subagent.py:enhanced_research_tool', 'message': 'LLM called enhanced_research_tool', 'data': {'query': query[:100], 'max_results_param': max_results, 'actual_max_results': actual_max_results, 'llm_specified': max_results is not None}, 'timestamp': time.time() * 1000}) + '\n')
+    except: pass
+    # #endregion
+    
+    print(f"[DEBUG] Enhanced research tool called with query: {query[:50]}..., max_results: {actual_max_results} (LLM specified: {max_results is not None})")
 
     try:
         from ..tools.enhanced_research import EnhancedResearchTool
         tool = EnhancedResearchTool()
-        result = await tool.smart_research(query, MAX_SEARCH_RESULTS)
+        result = await tool.smart_research(query, actual_max_results)
 
         # 返回结构化 JSON，包含真实的 sources
         structured_output = {
@@ -222,7 +246,9 @@ async def enhanced_research_tool(ctx: RunContextWrapper[Any], query: str) -> str
                 for src in result.get("sources", [])
             ],
             "confidence": result.get("confidence", 0.5),
-            "scenario": result.get("research_plan", {}).get("strategy", "unknown")
+            "scenario": result.get("research_plan", {}).get("strategy", "unknown"),
+            "search_metadata": result.get("search_metadata", {}),
+            "performance": result.get("performance", {})
         }
 
         # 返回 JSON 字符串
@@ -230,6 +256,13 @@ async def enhanced_research_tool(ctx: RunContextWrapper[Any], query: str) -> str
 
         tool_end = time.time()
         print(f"[DEBUG] Enhanced research completed: {tool_end - tool_start:.2f}s, {len(structured_output['sources'])} sources")
+        
+        # #region agent log
+        try:
+            with open('/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'LLM_SEARCH', 'location': 'subagent.py:enhanced_research_tool', 'message': 'Enhanced research completed', 'data': {'query': query[:100], 'num_sources': len(structured_output['sources']), 'confidence': structured_output.get('confidence', 0), 'num_findings': len(structured_output.get('findings', [])), 'search_metadata': structured_output.get('search_metadata', {})}, 'timestamp': time.time() * 1000}) + '\n')
+        except: pass
+        # #endregion
 
         return json_output
 
@@ -285,21 +318,118 @@ You are an ENHANCED SINGLE-RESEARCH agent with intelligent research capabilities
 - enhanced_research_tool: Returns STRUCTURED JSON with real URLs from search results
 - web_search_tool: Basic search (fallback only)
 
-## CRITICAL CONSTRAINTS
-- YOU CAN ONLY CALL enhanced_research_tool EXACTLY ONCE
-- NO second searches, NO follow-up calls, NO exceptions
-- The tool returns JSON with REAL URLs - use them DIRECTLY
+## RESEARCH STRATEGY PLANNING (CRITICAL)
+
+You have FULL CONTROL over the research process. Your goal is to gather sufficient information to answer the research question, using as many searches as needed until you are confident you have enough information.
+
+### 1. Determine Initial Search Depth (max_results parameter)
+
+Before the first call, analyze task complexity and decide initial search depth:
+- **Simple fact lookup** (e.g., "What is X?", "When was Y approved?"): 5-8 results
+- **Standard research** (e.g., "Overview of X", "Key features of Y"): 10-15 results
+- **Comprehensive analysis** (e.g., "Compare multiple X", "Detailed analysis of Y"): 15-20 results
+- **Deep investigation** (e.g., "Complete pipeline analysis", "All synthesis routes"): 20-25 results
+
+**Important**: This is just the INITIAL depth. You can adjust it in subsequent calls based on what you learn.
+
+### 2. Iterative Search Strategy - Continue Until Information is Sufficient
+
+**Core Principle**: Keep searching until you have enough information to answer the research question comprehensively.
+
+**Decision Framework After Each Search**:
+
+After each call to enhanced_research_tool, evaluate:
+
+1. **Information Sufficiency Check**:
+   - ✅ **Sufficient** if:
+     - Confidence >= 0.7 AND
+     - Key findings cover all critical aspects of the research focus AND
+     - Sources are relevant and authoritative AND
+     - You can answer the research question with the available information
+   - ❌ **Insufficient** if:
+     - Confidence < 0.5 OR
+     - Key information is missing (e.g., no sources for critical aspects) OR
+     - Sources are too narrow or not relevant OR
+     - You cannot answer the research question with current information
+
+2. **If Information is Sufficient**:
+   - ✅ **STOP searching** and proceed to extract and return results
+   - Do NOT make unnecessary additional calls
+
+3. **If Information is Insufficient**:
+   - 🔄 **Continue searching** with refined strategy:
+     - **Adjust max_results**: Increase if you need broader coverage, decrease if you're getting too many irrelevant results
+     - **Refine query**: Use different query angle or add specific terms to focus on missing aspects
+     - **Target gaps**: Focus searches on specific information gaps you've identified
+
+**Iterative Process**:
+```
+Call 1 → Evaluate → Sufficient? → YES → Extract & Return
+                    ↓ NO
+Call 2 → Evaluate → Sufficient? → YES → Extract & Return
+                    ↓ NO
+Call 3 → Evaluate → Sufficient? → YES → Extract & Return
+                    ↓ NO
+... (continue until sufficient)
+```
+
+**Maximum Iterations**: There is NO hard limit. Continue until information is sufficient, but be efficient:
+- Simple tasks: Usually 1-2 calls
+- Standard tasks: Usually 1-3 calls
+- Complex tasks: May need 3-5 calls
+- Very complex tasks: May need more, but evaluate carefully after each call
+
+**Efficiency Guidelines**:
+- Don't make redundant calls with the same query
+- Each new call should target specific gaps or use refined queries
+- If confidence keeps decreasing after multiple calls, consider that the information might not be available and proceed with what you have
 
 ## TASK
 Research: {focus}
 Use ONE of these queries: {queries}
 
 ## WORKFLOW
-1. Pick the BEST query from the list
-2. Call enhanced_research_tool ONCE
-3. Parse the returned JSON (it contains findings, sources with REAL URLs, confidence)
-4. Use the sources DIRECTLY from the tool output
-5. Return complete JSON immediately
+
+### Phase 1: Initial Planning
+1. **Analyze the research task**:
+   - What is the research focus?
+   - What information do you need to answer it?
+   - How complex is this task? (simple/standard/comprehensive/deep)
+   - Decide initial max_results (5-25 based on complexity)
+
+### Phase 2: Iterative Search Loop
+2. **Make search call**:
+   - Pick the BEST query from the list (or refine query based on previous results)
+   - **MUST call enhanced_research_tool with max_results parameter** (do NOT omit it):
+     * Simple task → max_results=6
+     * Standard task → max_results=12
+     * Comprehensive task → max_results=18
+     * Deep investigation → max_results=22
+   - Example: enhanced_research_tool(query="...", max_results=6)
+   - Parse the returned JSON (contains findings, sources with REAL URLs, confidence)
+
+3. **Evaluate information sufficiency**:
+   - Check confidence score
+   - Review findings: Do they cover all critical aspects?
+   - Review sources: Are they relevant and authoritative?
+   - Can you answer the research question with current information?
+   
+4. **Decision point**:
+   - **If SUFFICIENT** (confidence >= 0.7, key info present, can answer question):
+     - ✅ **EXIT LOOP** → Go to Phase 3
+   - **If INSUFFICIENT** (confidence < 0.5 OR missing key info OR cannot answer):
+   - 🔄 **CONTINUE LOOP** → Go back to step 2 with:
+     - Refined query (if needed)
+     - **Adjusted max_results** (if needed - increase if need more coverage, decrease if too many irrelevant results)
+     - Focus on identified gaps
+
+**Repeat Phase 2 until information is sufficient** (no hard limit, but be efficient)
+
+### Phase 3: Extract and Return
+5. **Extract and return results**:
+   - Combine findings from ALL searches you made
+   - Use sources DIRECTLY from tool output (do NOT modify URLs)
+   - Return complete JSON with all collected information
 
 ## TOOL OUTPUT FORMAT
 The enhanced_research_tool returns JSON:
@@ -312,6 +442,18 @@ The enhanced_research_tool returns JSON:
     "confidence": 0.8,
     "scenario": "..."
 }}
+
+**Use this information to evaluate sufficiency**:
+- `confidence`: Overall confidence in the results (0.0-1.0)
+- `findings`: Key insights extracted from sources
+- `sources`: List of sources with URLs (use these directly)
+- `scenario`: Detected research scenario type
+
+**Evaluation criteria**:
+- Low confidence (< 0.5) → Likely need more searches
+- Few findings → May need broader search
+- Irrelevant sources → Need refined query
+- Missing key aspects → Need targeted searches for gaps
 
 ## CRITICAL: SOURCE HANDLING
 - The tool already provides REAL URLs from SerpAPI - DO NOT modify them
@@ -389,7 +531,7 @@ class Subagent:
     Inspired by GPT-Researcher's worker agents.
     """
 
-    def __init__(self, agent_id: int, model: AnthropicModel):
+    def __init__(self, agent_id: int, model: Union[AnthropicModel, DeepseekModel]):
         self.agent_id = agent_id
         self.model = model
         self.base_agent = None
@@ -415,13 +557,14 @@ class Subagent:
             
         # Use fast model for tool calling efficiency
         from ..agent import build_model
+        from ..config import get_litellm_model_config
         fast_model = build_model("fast")
         print(f"[DEBUG] Subagent-{self.agent_id} using fast model for tool calls")
         
-        from ..config import ANTHROPIC_API_KEY
+        model_str, api_key = get_litellm_model_config(fast_model.model)
         litellm_model = LitellmModel(
-            model=f"anthropic/{fast_model.model}",
-            api_key=ANTHROPIC_API_KEY
+            model=model_str,
+            api_key=api_key
         )
         
         return Agent(
@@ -444,6 +587,7 @@ class Subagent:
     async def search(self, subtask: Subtask) -> SubtaskResult:
         """Execute search for a subtask."""
         import time
+        import json
         start_time = time.time()
         
         # Create agent with specific instructions
@@ -460,10 +604,24 @@ class Subagent:
             runner_start = time.time()
             print(f"[DEBUG] Subagent-{self.agent_id} Starting Runner.run for: {subtask.focus[:50]}...")
             
+            # #region agent log
+            try:
+                with open('/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'AGENT_EXEC', 'location': 'subagent.py:search', 'message': 'Starting agent execution', 'data': {'subtask_focus': subtask.focus, 'subtask_queries': subtask.queries, 'input_prompt': input_prompt[:200]}, 'timestamp': time.time() * 1000}) + '\n')
+            except: pass
+            # #endregion
+            
             result = await Runner.run(agent, input_prompt)
             
             runner_end = time.time()
             print(f"[DEBUG] Subagent-{self.agent_id} Runner.run completed: {runner_end - runner_start:.2f}s")
+            
+            # #region agent log
+            try:
+                with open('/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'AGENT_EXEC', 'location': 'subagent.py:search', 'message': 'Agent execution completed', 'data': {'subtask_focus': subtask.focus, 'has_final_output': bool(result.final_output), 'final_output_length': len(result.final_output) if result.final_output else 0, 'final_output_preview': (result.final_output or '')[:500]}, 'timestamp': time.time() * 1000}) + '\n')
+            except: pass
+            # #endregion
             
             output = result.final_output or ""
             
@@ -492,7 +650,7 @@ class Subagent:
 
                 snippet = src.get("snippet", "")
                 if len(snippet) > 200:
-                    snippet = snippet[:200] + "..."
+                    snippet = snippet[:500] + "..."
 
                 sources.append(Source(
                     title=src.get("title", "")[:100] or "Unknown",
@@ -502,7 +660,7 @@ class Subagent:
                 ))
 
                 # 最多保留 5 个有效 source（增加以保留更多高质量来源）
-                if len(sources) >= 5:
+                if len(sources) >= 8:
                     break
             
             if invalid_url_count > 0:

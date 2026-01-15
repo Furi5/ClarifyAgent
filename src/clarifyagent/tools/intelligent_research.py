@@ -195,18 +195,21 @@ class IntelligentResearchSelector:
                     return True, rule.jina_priority, rule.reason
         
         # 默认情况：短snippet可能信息不足
+        # 但对于简单任务，即使 snippet 短，也可能不需要深度读取
+        # 这个判断会在 create_research_plan 中根据 max_results 进一步筛选
         if len(snippet) < 300:
             return True, 2, "信息片段较短，需要完整内容以获取更多细节"
 
         return False, 0, "Serper信息充足"
     
-    def create_research_plan(self, query: str, search_results: List[Dict]) -> Dict:
+    def create_research_plan(self, query: str, search_results: List[Dict], max_results: int = 10) -> Dict:
         """
         创建智能研究计划
         
         Args:
             query: 研究查询
             search_results: Serper搜索结果
+            max_results: 搜索结果总数（用于动态调整Jina目标数量）
             
         Returns:
             研究计划字典
@@ -221,7 +224,12 @@ class IntelligentResearchSelector:
             'reasoning': []
         }
         
-        for i, result in enumerate(search_results[:10]):  # 分析前10个结果
+        # 根据 max_results 动态调整分析范围
+        # 简单任务（max_results <= 8）只分析所有结果
+        # 复杂任务（max_results > 15）分析前 15 个
+        analysis_limit = min(len(search_results), max(max_results, 15))
+        
+        for i, result in enumerate(search_results[:analysis_limit]):
             url = result.get('url', '')
             title = result.get('title', '')
             snippet = result.get('snippet', '')
@@ -244,14 +252,34 @@ class IntelligentResearchSelector:
                     'rank': i + 1
                 })
         
+        # 根据 max_results 动态调整 Jina 目标数量
+        # 简单任务（max_results <= 8）: 最多 2-3 个 Jina 目标
+        # 标准任务（8 < max_results <= 15）: 最多 5 个
+        # 复杂任务（max_results > 15）: 最多 8 个
+        if max_results <= 8:
+            max_jina_targets = min(3, len(plan['jina_targets']))  # 简单任务最多3个
+        elif max_results <= 15:
+            max_jina_targets = min(5, len(plan['jina_targets']))  # 标准任务最多5个
+        else:
+            max_jina_targets = min(8, len(plan['jina_targets']))  # 复杂任务最多8个
+        
         # 限制Jina调用数量以控制成本和时间
         plan['jina_targets'] = sorted(
             plan['jina_targets'],
             key=lambda x: (x['priority'], -x['rank'])
-        )[:5]  # 最多5个高价值目标（增加以获取更多深度信息）
+        )[:max_jina_targets]
         
         plan['reasoning'].append(f"检测到研究场景: {scenario.value}")
-        plan['reasoning'].append(f"计划深度读取 {len(plan['jina_targets'])} 个高价值源")
+        plan['reasoning'].append(f"根据 max_results={max_results}，计划深度读取 {len(plan['jina_targets'])} 个高价值源（上限: {max_jina_targets}）")
+        
+        # #region agent log
+        import json as json_mod
+        import time
+        try:
+            with open('/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log', 'a') as f:
+                f.write(json_mod.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'JINA_TARGETS', 'location': 'intelligent_research.py:create_research_plan', 'message': 'Jina targets determined', 'data': {'max_results': max_results, 'total_candidates': len([t for t in plan['jina_targets'] if t.get('priority', 0) >= 2]), 'max_jina_targets': max_jina_targets, 'final_count': len(plan['jina_targets']), 'scenario': scenario.value}, 'timestamp': time.time() * 1000}) + '\n')
+        except: pass
+        # #endregion
         
         return plan
 

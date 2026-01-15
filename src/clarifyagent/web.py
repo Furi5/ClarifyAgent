@@ -298,6 +298,7 @@ def render_research_result(result: ResearchResult) -> dict:
     Render research result as structured data.
     增强版：更严格的 URL 验证
     """
+    print(f"[DEBUG] render_research_result: Starting, goal={result.goal}, num_findings={len(result.findings) if result.findings else 0}")
     # Findings sources come from subtask_results (search results), so they should be valid
     # Citations sources are already validated in synthesizer
     # We add extra validation here as a safety net
@@ -344,13 +345,16 @@ def render_research_result(result: ResearchResult) -> dict:
                 "sources": [{"title": s.title or "Unknown", "url": s.url} for s in valid_cit_sources]
             })
     
-    return {
+    print(f"[DEBUG] render_research_result: Processing complete, filtered_findings={len(filtered_findings)}, filtered_citations={len(filtered_citations)}")
+    result_dict = {
         "goal": result.goal,
         "synthesis": result.synthesis,
         "research_focus": result.research_focus,
         "findings": filtered_findings,
         "citations": filtered_citations
     }
+    print(f"[DEBUG] render_research_result: Returning dict, synthesis_length={len(result.synthesis) if result.synthesis else 0}")
+    return result_dict
 
 
 
@@ -745,14 +749,39 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                         pending_plan.task.research_focus,
                         subtask_results
                     )
+                    print(f"[DEBUG] web.py: synthesize_results returned, goal={research_result.goal}")
 
+                    print(f"[DEBUG] web.py: Yielding progress message...")
                     yield f"data: {json.dumps({'type': 'progress', 'stage': 'complete', 'message': '研究完成', 'detail': '研究报告已生成'})}\n\n"
+                    print(f"[DEBUG] web.py: Progress message yielded")
 
+                    print(f"[DEBUG] web.py: Adding assistant message...")
                     add_assistant(state, f"研究完成：{research_result.goal}")
+                    print(f"[DEBUG] web.py: Updating task draft...")
                     update_task_draft(state, pending_plan.task.model_dump())
-                    save_research_result(state, render_research_result(research_result))
+                    print(f"[DEBUG] web.py: Rendering research result...")
+                    rendered_result = render_research_result(research_result)
+                    print(f"[DEBUG] web.py: Research result rendered, size={len(str(rendered_result))} chars")
+                    print(f"[DEBUG] web.py: Saving research result...")
+                    try:
+                        save_research_result(state, rendered_result)
+                        print(f"[DEBUG] web.py: Research result saved")
+                    except Exception as e:
+                        print(f"[WARN] web.py: Failed to save research result: {e}")
+                        # 继续执行，不因为保存失败而中断
 
-                    yield f"data: {json.dumps({'type': 'result', 'response_type': 'research_result', 'message': '研究完成！', 'research_result': render_research_result(research_result)})}\n\n"
+                    print(f"[DEBUG] web.py: Yielding final result...")
+                    try:
+                        # 序列化 JSON，可能因为数据太大而卡住
+                        result_json = json.dumps({'type': 'result', 'response_type': 'research_result', 'message': '研究完成！', 'research_result': rendered_result}, ensure_ascii=False)
+                        print(f"[DEBUG] web.py: JSON serialized, size={len(result_json)} chars")
+                        yield f"data: {result_json}\n\n"
+                        print(f"[DEBUG] web.py: Final result yielded, returning")
+                    except Exception as e:
+                        print(f"[ERROR] web.py: Failed to serialize/yield result: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'序列化结果失败: {str(e)}'})}\n\n"
                     return
 
                 except Exception as e:

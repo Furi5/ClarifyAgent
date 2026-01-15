@@ -1,6 +1,71 @@
 
 ---
 
+## 2026-01-15: 修复 Synthesizer 卡住问题 - 添加详细诊断日志
+
+### 问题描述
+- Synthesizer 的 LLM 调用完成后（输出了 `Synthesizer output length: 2149 chars`），程序卡住
+- 没有更多日志输出，无法定位卡住的具体位置
+- 可能卡在：`ResearchResult` 创建、`render_research_result`、`json.dumps` 序列化、或 `yield` 操作
+
+### 修改内容
+
+1. **添加 Synthesizer 返回日志** (`src/clarifyagent/synthesizer.py`):
+   - 在创建 `ResearchResult` 前后添加日志
+   - 确认 `ResearchResult` 是否成功创建
+
+2. **添加 web.py 处理流程日志** (`src/clarifyagent/web.py`):
+   - 在 `synthesize_results` 返回后添加日志
+   - 在 `yield progress` 前后添加日志
+   - 在 `add_assistant`、`update_task_draft`、`save_research_result` 前后添加日志
+   - 在 `render_research_result` 开始和结束时添加日志
+   - 在 `json.dumps` 序列化前后添加日志
+   - 在 `yield final result` 前后添加日志
+
+3. **添加 render_research_result 日志** (`src/clarifyagent/web.py`):
+   - 在函数开始和结束时添加日志
+   - 输出处理的数据量（findings、citations 数量）
+   - 输出 synthesis 长度
+
+4. **添加错误处理** (`src/clarifyagent/web.py`):
+   - 在 `json.dumps` 序列化时添加 try-except
+   - 在 `save_research_result` 时添加 try-except，避免保存失败导致中断
+
+### 技术细节
+
+**日志流程：**
+```
+[DEBUG] Synthesizer output length: X chars
+[DEBUG] Synthesizer: Creating ResearchResult...
+[DEBUG] Synthesizer: ResearchResult created successfully
+[DEBUG] web.py: synthesize_results returned, goal=...
+[DEBUG] web.py: Yielding progress message...
+[DEBUG] web.py: Progress message yielded
+[DEBUG] web.py: Adding assistant message...
+[DEBUG] web.py: Updating task draft...
+[DEBUG] web.py: Rendering research result...
+[DEBUG] render_research_result: Starting, goal=..., num_findings=...
+[DEBUG] render_research_result: Processing complete, filtered_findings=..., filtered_citations=...
+[DEBUG] render_research_result: Returning dict, synthesis_length=...
+[DEBUG] web.py: Research result rendered, size=... chars
+[DEBUG] web.py: Saving research result...
+[DEBUG] web.py: Research result saved
+[DEBUG] web.py: Yielding final result...
+[DEBUG] web.py: JSON serialized, size=... chars
+[DEBUG] web.py: Final result yielded, returning
+```
+
+### 影响
+- ✅ 可以精确定位卡住的位置
+- ✅ 可以看到每个步骤的耗时
+- ✅ 可以识别是否有异常（如序列化失败）
+- ✅ 更好的错误处理，避免单个步骤失败导致整体失败
+
+### 后续步骤
+运行程序后，新的日志会显示卡在哪一步，然后可以针对性地修复。
+
+---
+
 ## 2026-01-15: 修复 Runner.run 超时问题 - 增强诊断和错误处理
 
 ### 问题描述

@@ -152,6 +152,18 @@ async def synthesize_results(
 
         print(f"[DEBUG] Synthesizer output length: {len(synthesis_text)} chars")
 
+        # 准备返回结果
+        print(f"[DEBUG] Synthesizer: Creating ResearchResult...")
+        result_obj = ResearchResult(
+            goal=goal,
+            research_focus=research_focus,
+            findings={r.focus: r for r in subtask_results},
+            synthesis=synthesis_text,
+            citations=[]  # Citations are now inline in the markdown text
+        )
+        print(f"[DEBUG] Synthesizer: ResearchResult created successfully")
+        return result_obj
+
     except Exception as e:
         # # #region synthesizer log
         # with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:

@@ -127,15 +127,11 @@ class Orchestrator:
                 # Step 4: Executor - Execute parallel search
                 self._report_progress("searching", "开始检索", f"并行搜索 {len(subtasks)} 个方向")
                 print(f"[DEBUG] 开始并行执行搜索...")
-                
-                # Execute with progress updates per subtask
-                subtask_results = []
-                for i, subtask in enumerate(subtasks):
-                    self._report_progress("searching", f"检索中 ({i+1}/{len(subtasks)})", subtask.focus)
-                    result = await self.executor.execute_single(subtask)
-                    if result:
-                        subtask_results.append(result)
-                
+
+                # Execute in parallel using execute_parallel_search
+                all_results = await self.executor.execute_parallel_search(subtasks)
+                subtask_results = [r for r in all_results if r is not None]
+
                 print(f"[DEBUG] 完成 {len(subtask_results)} 个子任务")
                 
                 if not subtask_results:

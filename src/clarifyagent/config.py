@@ -61,6 +61,9 @@ if _llm_weight_raw != LLM_CONFIDENCE_WEIGHT:
 JINA_TIMEOUT = float(os.getenv("JINA_TIMEOUT", "3.0"))  # Jina 硬超时时间(秒)，默认3秒
 JINA_RETRIES = int(os.getenv("JINA_RETRIES", "0"))  # Jina 重试次数，默认0（零重试）
 
+# Subagent configuration
+MAX_AGENT_TURNS = int(os.getenv("MAX_AGENT_TURNS", "2"))  # 每个子代理最大搜索轮次，默认2（1次搜索+1次输出）
+
 # Jina 黑名单域名（这些域名直接禁用 Jina 读取）
 JINA_SKIP_DOMAINS = [
     "pmc.ncbi.nlm.nih.gov",
@@ -81,6 +84,13 @@ JINA_SKIP_DOMAINS = [
     "ilcn.org",
     "drugs.com",
     "tandfonline.com",
+    "nytimes.com",
+    "consultant360.com",
+    "cancerresearch.org",
+    "wikipedia.org",
+    "merck.com",
+    "personalizedmedonc.com",
+    "cancerletter.com",
 ]
 
 

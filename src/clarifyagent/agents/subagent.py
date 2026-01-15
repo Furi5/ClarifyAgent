@@ -502,13 +502,12 @@ class Subagent:
             
             try:
                 # 添加超时保护 + 限制工具调用次数
-                from ..config import AGENT_EXECUTION_TIMEOUT
+                from ..config import AGENT_EXECUTION_TIMEOUT, MAX_AGENT_TURNS
                 from agents.exceptions import MaxTurnsExceeded
 
-                # max_turns=4: 限制最多 4 次 LLM 循环
-                # 典型流程：Turn1=搜索 → Turn2=搜索(可选) → Turn3=搜索(可选) → Turn4=生成输出
-                # 这是硬性限制，防止 LLM 无限循环搜索
-                MAX_AGENT_TURNS = 4
+                # max_turns: 限制 LLM 循环次数（可通过环境变量 MAX_AGENT_TURNS 配置）
+                # 默认2：Turn1=搜索 → Turn2=生成输出（快速模式）
+                # 设为3-4：允许多次搜索（更全面但更慢）
 
                 result = await asyncio.wait_for(
                     Runner.run(agent, input_prompt, max_turns=MAX_AGENT_TURNS),
@@ -519,17 +518,16 @@ class Subagent:
                 # 达到最大循环次数，这是正常的退出情况（不是错误）
                 check_task.cancel()
                 elapsed = time.time() - runner_start
-                print(f"[INFO] Subagent-{self.agent_id} reached max_turns={MAX_AGENT_TURNS} after {elapsed:.1f}s - returning with available data")
+                print(f"[INFO] Subagent-{self.agent_id} reached max_turns after {elapsed:.1f}s - returning with available data")
 
                 # 当 max_turns 被超过时，返回一个基本结果
-                # run_data 可能包含已收集的信息
                 total_time = time.time() - start_time
                 return SubtaskResult(
                     subtask_id=subtask.id,
                     focus=subtask.focus,
-                    findings=[f"研究达到最大搜索次数限制（{MAX_AGENT_TURNS}次），已收集可用信息"],
+                    findings=["研究达到最大搜索次数限制，已收集可用信息"],
                     sources=[],
-                    confidence=0.5  # 给一个中等的 confidence
+                    confidence=0.5
                 )
             except asyncio.TimeoutError:
                 check_task.cancel()

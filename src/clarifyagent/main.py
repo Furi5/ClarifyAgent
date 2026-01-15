@@ -216,9 +216,9 @@ async def main():
                 
                 # #region debug log
                 import json, time
-                with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:
-                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H1", "location": "main.py:clarification_input", "message": "User clarification input", "data": {"clar_response": clar_response, "options_count": len(options), "options": options[:3], "choice": choice}, "timestamp": time.time() * 1000}) + "\n")
-                # #endregion
+                # with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:
+                #     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H1", "location": "main.py:clarification_input", "message": "User clarification input", "data": {"clar_response": clar_response, "options_count": len(options), "options": options[:3], "choice": choice}, "timestamp": time.time() * 1000}) + "\n")
+                # # #endregion
                 
                 if choice:
                     selected_option = options[choice - 1] if choice <= len(options) else clar_response
@@ -242,9 +242,9 @@ async def main():
                     )
                     
                     # #region debug log
-                    with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:
-                        f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H2_H3", "location": "main.py:after_rerun", "message": "After orchestrator rerun", "data": {"next_action": plan.next_action, "has_research_result": research_result is not None, "confidence": plan.confidence}, "timestamp": time.time() * 1000}) + "\n")
-                    # #endregion
+                    # with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:
+                    #     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H2_H3", "location": "main.py:after_rerun", "message": "After orchestrator rerun", "data": {"next_action": plan.next_action, "has_research_result": research_result is not None, "confidence": plan.confidence}, "timestamp": time.time() * 1000}) + "\n")
+                    # # #endregion
                     
                     # Handle the new plan
                     if plan.next_action == "START_RESEARCH" and research_result:
@@ -258,15 +258,15 @@ async def main():
                         pending_plan = plan
                     else:
                         # #region debug log
-                        with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:
-                            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H2", "location": "main.py:unhandled_action", "message": "Unhandled next_action after clarification", "data": {"next_action": plan.next_action, "has_research_result": research_result is not None}, "timestamp": time.time() * 1000}) + "\n")
-                        # #endregion
+                        # with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:
+                        #     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H2", "location": "main.py:unhandled_action", "message": "Unhandled next_action after clarification", "data": {"next_action": plan.next_action, "has_research_result": research_result is not None}, "timestamp": time.time() * 1000}) + "\n")
+                        # # #endregion
                         print(f"[DEBUG] 未处理的状态: next_action={plan.next_action}, has_result={research_result is not None}")
                 else:
                     # #region debug log
-                    with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:
-                        f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H1", "location": "main.py:no_choice", "message": "No valid choice detected", "data": {"clar_response": clar_response, "options": options}, "timestamp": time.time() * 1000}) + "\n")
-                    # #endregion
+                    # with open("/Users/fl/Desktop/my_code/clarifyagent/.cursor/debug.log", "a") as f:
+                    #     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H1", "location": "main.py:no_choice", "message": "No valid choice detected", "data": {"clar_response": clar_response, "options": options}, "timestamp": time.time() * 1000}) + "\n")
+                    # # #endregion
                     print(f"[DEBUG] 未能识别选项：{clar_response}")
             continue
 

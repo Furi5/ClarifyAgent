@@ -1,5 +1,6 @@
 """Synthesizer module for combining results from multiple subagents."""
 import json
+import time
 from typing import Dict, List
 from agents import Agent, Runner
 from agents.extensions.models.litellm_model import LitellmModel

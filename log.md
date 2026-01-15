@@ -1,6 +1,28 @@
 
 ---
 
+### 修复 Synthesizer 中 time 模块未导入的错误
+
+**问题描述：**
+- `synthesizer.py` 在第127和130行使用了 `time.time()`，但没有导入 `time` 模块
+- 导致运行时错误：`name 'time' is not defined`
+
+**修改内容：**
+
+1. **`src/clarifyagent/synthesizer.py`**
+   - 在文件顶部添加 `import time`（第3行）
+   - 修复了 `time.time()` 调用时的未定义错误
+
+**技术细节：**
+- 代码在第128行和131行使用 `time.time()` 来计算 LLM 调用的执行时间
+- 虽然注释掉的日志代码中有 `import time`，但实际运行的代码中缺少这个导入
+
+**影响：**
+- ✅ 修复了 Synthesizer 运行时的 `NameError`
+- ✅ 现在可以正确计算 LLM 调用的执行时间
+
+---
+
 ### 修复简单任务仍然使用 8 个 Jina 目标的问题
 
 **问题描述：**

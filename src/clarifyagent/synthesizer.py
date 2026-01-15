@@ -90,10 +90,12 @@ async def synthesize_results(
     #     f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H1_H3", "location": "synthesizer.py:entry", "message": "Synthesizer entry", "data": {"num_results": len(subtask_results), "result_focuses": [r.focus for r in subtask_results], "total_findings": sum(len(r.findings) for r in subtask_results), "total_sources": sum(len(r.sources) for r in subtask_results)}, "timestamp": time.time() * 1000}) + "\n")
     # # #endregion
     
+    print(f"[DEBUG] Synthesizer entry: {len(subtask_results)} subtask results")
     synthesizer = build_synthesizer()  # 使用默认高质量模型
     
     # Prepare input data with truncation
     findings_dict = truncate_findings(subtask_results)
+    print(f"[DEBUG] Synthesizer: prepared findings_dict with {len(findings_dict)} focuses")
     
     payload = {
         "goal": goal,

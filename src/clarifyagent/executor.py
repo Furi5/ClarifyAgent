@@ -26,13 +26,23 @@ class Executor:
         Returns:
             Subtask result or None on error
         """
+        import time
+        start_time = time.time()
+        print(f"[DEBUG] Executor.execute_single started for: {subtask.focus[:50]}...")
+        
         if self._single_agent is None:
             self._single_agent = Subagent(0, self.model)
         
         try:
-            return await self._single_agent.search(subtask)
+            result = await self._single_agent.search(subtask)
+            elapsed = time.time() - start_time
+            print(f"[DEBUG] Executor.execute_single completed: {elapsed:.2f}s, result={'OK' if result else 'None'}")
+            return result
         except Exception as e:
-            print(f"[ERROR] execute_single failed: {e}")
+            elapsed = time.time() - start_time
+            print(f"[ERROR] execute_single failed after {elapsed:.2f}s: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     async def execute_parallel_search(

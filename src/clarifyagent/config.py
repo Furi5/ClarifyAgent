@@ -48,6 +48,34 @@ MAX_TOOL_OUTPUT = int(os.getenv("MAX_TOOL_OUTPUT", "2000"))       # 工具输出
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "30"))                # API调用超时时间(秒)
 MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "4"))  # 最大并发请求数
 ADAPTIVE_CONCURRENCY = os.getenv("ADAPTIVE_CONCURRENCY", "true").lower() == "true"  # 自适应并发
+AGENT_EXECUTION_TIMEOUT = int(os.getenv("AGENT_EXECUTION_TIMEOUT", "300"))  # Agent 执行超时时间(秒)，默认5分钟
+
+# LLM confidence evaluation settings
+ENABLE_LLM_CONFIDENCE = os.getenv("ENABLE_LLM_CONFIDENCE", "false").lower() == "true"  # 是否启用 LLM 评分
+_llm_weight_raw = float(os.getenv("LLM_CONFIDENCE_WEIGHT", "0.4"))
+LLM_CONFIDENCE_WEIGHT = max(0.0, min(1.0, _llm_weight_raw))  # LLM 评分权重，强制限制在 0.0-1.0 范围内
+if _llm_weight_raw != LLM_CONFIDENCE_WEIGHT:
+    print(f"[WARN] LLM_CONFIDENCE_WEIGHT={_llm_weight_raw} 超出范围，已修正为 {LLM_CONFIDENCE_WEIGHT}")
+
+# Jina configuration
+JINA_TIMEOUT = float(os.getenv("JINA_TIMEOUT", "3.0"))  # Jina 硬超时时间(秒)，默认3秒
+JINA_RETRIES = int(os.getenv("JINA_RETRIES", "0"))  # Jina 重试次数，默认0（零重试）
+
+# Jina 黑名单域名（这些域名直接禁用 Jina 读取）
+JINA_SKIP_DOMAINS = [
+    "pmc.ncbi.nlm.nih.gov",
+    "nejm.org",
+    "sciencedirect.com",
+    "annalsofoncology.org",
+    "ascopubs.org",
+    "aacrjournals.org",
+    "onlinelibrary.wiley.com",
+    "link.springer.com",
+    "nature.com",
+    "clinicaltrials.gov",
+    "asco.org",
+    "esmo.org"
+]
 
 
 def get_litellm_model_config(model_name: str):

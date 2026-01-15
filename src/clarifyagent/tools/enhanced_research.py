@@ -13,7 +13,7 @@ from .intelligent_research import IntelligentResearchSelector, ResearchScenario
 class EnhancedResearchTool:
     """增强研究工具"""
     
-    def __init__(self):
+    def __init__(self, enable_llm_confidence: bool = None):
         self.selector = IntelligentResearchSelector()
         self.performance_stats = {
             'serper_calls': 0,
@@ -21,6 +21,15 @@ class EnhancedResearchTool:
             'total_time': 0,
             'scenarios_detected': {}
         }
+        
+        # LLM 评分支持
+        from ..config import ENABLE_LLM_CONFIDENCE
+        self.enable_llm_confidence = enable_llm_confidence if enable_llm_confidence is not None else ENABLE_LLM_CONFIDENCE
+        self.llm_model = None
+        if self.enable_llm_confidence:
+            from ..agent import build_model
+            self.llm_model = build_model("fast")  # 使用快速模型进行评分
+            print(f"[EnhancedResearch] LLM confidence evaluation enabled")
     
     async def smart_research(self, query: str, max_results: int = 10,
                            task_context: Dict = None) -> Dict[str, Any]:
@@ -76,25 +85,44 @@ class EnhancedResearchTool:
 
         print(f"[EnhancedResearch] 研究计划: {len(research_plan['jina_targets'])} 个深度目标")
 
-        # 5. 并行执行深度读取
+        # 5. 并行执行深度读取（带并发控制）
         enhanced_sources = []
         if research_plan['jina_targets']:
-            jina_tasks = []
-            for target in research_plan['jina_targets']:
-                jina_tasks.append(self._safe_jina_read(target))
+            from ..config import MAX_CONCURRENT_REQUESTS
+            # 使用信号量控制并发，避免过多并发请求导致 SSL 错误
+            semaphore = asyncio.Semaphore(min(MAX_CONCURRENT_REQUESTS, len(research_plan['jina_targets'])))
+            
+            async def jina_read_with_semaphore(target):
+                async with semaphore:
+                    return await self._safe_jina_read(target)
+            
+            jina_tasks = [jina_read_with_semaphore(target) for target in research_plan['jina_targets']]
             
             jina_start = time.time()
             jina_results = await asyncio.gather(*jina_tasks, return_exceptions=True)
             jina_time = time.time() - jina_start
             self.performance_stats['jina_calls'] += len(jina_tasks)
             
-            # 处理Jina结果
+            # 处理Jina结果并统计
+            success_count = 0
+            error_count = 0
             for i, result in enumerate(jina_results):
                 if isinstance(result, Exception):
-                    print(f"[EnhancedResearch] Jina读取失败: {result}")
+                    error_count += 1
                     continue
                 if result:
                     enhanced_sources.append(result)
+                    success_count += 1
+            
+            # 输出统计信息
+            # 注意：jina_success_rate 使用 0-1 比例，不是百分比
+            jina_success_rate = 0.0
+            if len(jina_tasks) > 0:
+                jina_success_rate = success_count / len(jina_tasks)  # 0-1 比例
+                jina_success_percent = jina_success_rate * 100  # 用于显示的百分比
+                print(f"[EnhancedResearch] Jina读取完成: {success_count}/{len(jina_tasks)} 成功 ({jina_success_percent:.1f}%), {error_count} 失败")
+        else:
+            jina_success_rate = 1.0  # 如果没有 Jina 任务，认为成功率为 100%（0-1 比例）
         
         # 5. 合并Serper和Jina结果
         all_sources = self._merge_sources(search_results_list, enhanced_sources)
@@ -102,23 +130,39 @@ class EnhancedResearchTool:
         # 6. 基于场景提取关键发现
         findings = self._extract_scenario_findings(scenario, all_sources, query)
         
-        # 7. 计算置信度
-        confidence = self._calculate_confidence(scenario, all_sources, len(enhanced_sources))
+        # 7. 计算置信度（支持 LLM 评分）
+        confidence_start = time.time()
+        confidence_result = await self._calculate_confidence(scenario, all_sources, len(enhanced_sources), 
+                                                             query=query, findings=findings,
+                                                             jina_success_rate=jina_success_rate)
+        confidence_time = time.time() - confidence_start
+        llm_confidence_time = confidence_result.get('llm_confidence_time', 0)
         
         total_time = time.time() - start_time
         self.performance_stats['total_time'] += total_time
         
-        print(f"[EnhancedResearch] 完成: {total_time:.2f}s (Serper: {serper_time:.2f}s, Jina: {jina_time if 'jina_time' in locals() else 0:.2f}s)")
+        # 构建耗时信息字符串
+        time_parts = [f"Serper: {serper_time:.2f}s", f"Jina: {jina_time if 'jina_time' in locals() else 0:.2f}s"]
+        if llm_confidence_time > 0:
+            time_parts.append(f"LLM评分: {llm_confidence_time:.2f}s")
+        time_parts.append(f"其他: {total_time - serper_time - (jina_time if 'jina_time' in locals() else 0) - llm_confidence_time:.2f}s")
+        
+        print(f"[EnhancedResearch] 完成: {total_time:.2f}s ({', '.join(time_parts)})")
         
         return {
             'findings': findings,
             'sources': all_sources,  # Return all sources, let LLM decide what to use
-            'confidence': confidence,
+            'confidence': confidence_result['confidence'],  # 向后兼容：最终置信度
+            'rule_confidence': confidence_result['rule_confidence'],  # 规则计算的置信度
+            'llm_confidence': confidence_result['llm_confidence'],  # LLM 评估的置信度（如果启用）
+            'confidence_details': confidence_result['confidence_details'],  # 详细信息
             'research_plan': research_plan,
             'performance': {
                 'total_time': total_time,
                 'serper_time': serper_time,
                 'jina_time': jina_time if 'jina_time' in locals() else 0,
+                'llm_confidence_time': llm_confidence_time,
+                'confidence_time': confidence_time,
                 'enhanced_sources': len(enhanced_sources),
                 'total_sources': len(all_sources)
             },
@@ -187,7 +231,7 @@ class EnhancedResearchTool:
         return sources
 
     async def _safe_jina_read(self, target: Dict) -> Optional[Source]:
-        """安全的Jina读取"""
+        """安全的Jina读取，捕获所有异常避免影响整体执行"""
         try:
             content = await jina_read(target['url'], max_chars=3000)  # 限制内容长度
             if content and len(content.strip()) > 100:  # 确保有意义的内容
@@ -203,7 +247,17 @@ class EnhancedResearchTool:
                     }
                 )
         except Exception as e:
-            print(f"[EnhancedResearch] Jina读取失败 {target['url']}: {e}")
+            # 简化错误日志，只显示关键信息，避免冗长的堆栈跟踪
+            error_msg = str(e)
+            # 对于常见错误，只显示简短信息
+            if "SSLError" in error_msg or "SSL" in error_msg:
+                print(f"[EnhancedResearch] Jina读取失败 {target['url']}: SSL连接错误（已跳过）")
+            elif "timeout" in error_msg.lower() or "Timeout" in error_msg:
+                print(f"[EnhancedResearch] Jina读取失败 {target['url']}: 超时（已跳过）")
+            elif "HTTP" in error_msg or "status" in error_msg.lower():
+                print(f"[EnhancedResearch] Jina读取失败 {target['url']}: {error_msg[:100]}")
+            else:
+                print(f"[EnhancedResearch] Jina读取失败 {target['url']}: {error_msg[:100]}")
         return None
     
     def _parse_search_results(self, search_results: str) -> List[Dict]:
@@ -359,9 +413,22 @@ class EnhancedResearchTool:
         
         return findings[:5]  # 限制发现数量
     
-    def _calculate_confidence(self, scenario: ResearchScenario, 
-                            sources: List[Source], enhanced_count: int) -> float:
-        """计算置信度"""
+    async def _calculate_confidence(self, scenario: ResearchScenario,
+                                  sources: List[Source], enhanced_count: int,
+                                  query: str = "", findings: List[str] = None,
+                                  jina_success_rate: float = 1.0) -> Dict[str, Any]:
+        """计算置信度（支持规则+LLM混合评分）
+        
+        Returns:
+            Dict containing:
+            - confidence: 最终置信度（向后兼容）
+            - rule_confidence: 规则计算的置信度
+            - llm_confidence: LLM 评估的置信度（如果启用）
+            - confidence_details: 详细信息
+        """
+        findings = findings or []
+        
+        # 1. 规则计算（基础评分）
         base_confidence = 0.5
         
         # 基于源的数量
@@ -370,17 +437,203 @@ class EnhancedResearchTool:
         # 基于深度内容的数量
         enhanced_boost = min(enhanced_count * 0.15, 0.3)
         
-        # 基于场景的权重
+        # 基于场景的权重（覆盖所有 ResearchScenario 枚举值）
         scenario_weights = {
-            ResearchScenario.RETROSYNTHESIS: 0.8,  # 技术内容相对确定
-            ResearchScenario.PIPELINE_EVALUATION: 0.7,  # 商业分析有主观性
-            ResearchScenario.CLINICAL_PIPELINE: 0.9,  # 临床数据相对客观
+            ResearchScenario.RETROSYNTHESIS: 0.85,      # 技术内容相对确定，合成路线有明确答案
+            ResearchScenario.PIPELINE_EVALUATION: 0.75, # 商业分析有主观性，需要更多验证
+            ResearchScenario.CLINICAL_PIPELINE: 0.9,    # 临床数据相对客观，有明确的试验结果
+            ResearchScenario.MARKET_ANALYSIS: 0.7,      # 市场分析主观性强，数据时效性要求高
+            ResearchScenario.REGULATORY_REVIEW: 0.85,   # 监管信息相对确定，官方来源可靠
+            ResearchScenario.ACADEMIC_RESEARCH: 0.8,    # 学术研究有同行评审，相对可靠
+            ResearchScenario.COMPETITIVE_INTELLIGENCE: 0.7,  # 竞争情报时效性强，信息不完整
         }
+
+        scenario_weight = scenario_weights.get(scenario, 0.75)  # 默认值提高到 0.75
         
-        scenario_weight = scenario_weights.get(scenario, 0.6)
+        rule_confidence = (base_confidence + source_boost + enhanced_boost) * scenario_weight
         
-        confidence = (base_confidence + source_boost + enhanced_boost) * scenario_weight
-        return min(confidence, 0.95)  # 最大0.95
+        # 2. LLM 评分（如果启用）
+        llm_confidence = None
+        llm_confidence_time = 0.0
+        # 初始化 confidence_details，确保所有字段都有默认值（避免下游 None 引用问题）
+        confidence_details = {
+            "rule_confidence": rule_confidence,
+            "llm_enabled": self.enable_llm_confidence,
+            "llm_confidence": 0.0,           # 默认 0.0 而非 None
+            "confidence_weight": 0.0,        # 默认 0.0 而非 None
+            "llm_failed": False,             # 标记 LLM 是否失败
+            "jina_success_rate": 1.0,        # 默认 100%
+            "jina_failed": False,            # 标记 Jina 是否失败
+            "note": "",                      # 备注信息
+        }
+
+        if self.enable_llm_confidence and query and sources:
+            try:
+                llm_start = time.time()
+                llm_confidence = await self._llm_evaluate_confidence(query, sources, findings, scenario)
+                llm_confidence_time = time.time() - llm_start
+                from ..config import LLM_CONFIDENCE_WEIGHT
+                # 混合评分
+                final_confidence = rule_confidence * (1 - LLM_CONFIDENCE_WEIGHT) + llm_confidence * LLM_CONFIDENCE_WEIGHT
+                confidence_details["llm_confidence"] = llm_confidence
+                confidence_details["confidence_weight"] = LLM_CONFIDENCE_WEIGHT
+                print(f"[EnhancedResearch] Confidence: rule={rule_confidence:.2f}, llm={llm_confidence:.2f}, final={final_confidence:.2f} (LLM耗时: {llm_confidence_time:.2f}s)")
+            except Exception as e:
+                print(f"[WARN] LLM confidence evaluation failed: {e}, using rule-based only")
+                final_confidence = rule_confidence
+                confidence_details["llm_failed"] = True
+                confidence_details["note"] = f"LLM 评分失败: {str(e)[:100]}"
+        else:
+            final_confidence = rule_confidence
+
+        # Jina 失败处理策略：
+        # - Jina 是"加分项"而非"必需项"，失败时不惩罚 confidence
+        # - Jina 失败已通过 enhanced_boost = 0 自然体现（没有深度内容就没有加分）
+        # - 只要 Serper 结果数量足够，confidence 仍可达到退出阈值
+        #
+        # 计算示例（假设 scenario_weight = 0.9）：
+        # - Serper 3 个结果 + Jina 全失败: (0.5 + 0.3 + 0) * 0.9 = 0.72 ✓ 可退出
+        # - Serper 2 个结果 + Jina 全失败: (0.5 + 0.2 + 0) * 0.9 = 0.63 → 继续搜索
+        if jina_success_rate == 0.0 and len(sources) > 0:
+            # 标记 Jina 失败，但不惩罚 confidence
+            confidence_details["jina_success_rate"] = 0.0
+            confidence_details["jina_failed"] = True
+            confidence_details["note"] = "Jina 深度读取失败，但 Serper 结果可用，不惩罚 confidence"
+            print(f"[EnhancedResearch] Jina 成功率 0%，但不惩罚 confidence（当前值: {final_confidence:.2f}）")
+
+        final_confidence = min(final_confidence, 0.95)  # 最大0.95
+
+        return {
+            "confidence": final_confidence,  # 向后兼容
+            "rule_confidence": rule_confidence,
+            "llm_confidence": llm_confidence,
+            "llm_confidence_time": llm_confidence_time,  # LLM 评估耗时
+            "confidence_details": confidence_details
+        }
+    
+    async def _llm_evaluate_confidence(self, query: str, sources: List[Source], 
+                                      findings: List[str], scenario: ResearchScenario) -> float:
+        """使用 LLM 评估信息质量和相关性"""
+        if not self.llm_model or not sources:
+            return 0.5  # 默认值
+        
+        # 构建评估 prompt（只评估前5个源以节省token）
+        sources_summary = "\n".join([
+            f"- {src.title}: {src.snippet[:200]}..." 
+            for src in sources[:5]
+        ])
+        
+        findings_summary = "\n".join(findings[:3]) if findings else "无明确发现"
+        
+        prompt = f"""评估以下搜索结果的信息质量和相关性。
+
+查询: {query}
+
+搜索结果摘要:
+{sources_summary}
+
+关键发现:
+{findings_summary}
+
+请从以下维度评估（每个维度0-1分）:
+## 评分标准（严格按此打分）
+
+### relevance（相关性）
+- 0.9-1.0: 所有结果直接回答查询，高度相关
+- 0.7-0.8: 大部分结果相关，少数偏题
+- 0.5-0.6: 部分相关，但有明显遗漏
+- 0.3-0.4: 结果较少相关，多数偏题
+- 0.0-0.2: 几乎不相关或无结果
+
+### quality（来源质量）
+- 0.9-1.0: 权威来源（Nature/Science/政府/顶级机构）
+- 0.7-0.8: 可靠来源（知名媒体/学术期刊/企业官网）
+- 0.5-0.6: 一般来源（行业网站/新闻）
+- 0.3-0.4: 低质量来源（论坛/博客）
+- 0.0-0.2: 无来源或不可靠
+
+### completeness（完整性）
+- 0.9-1.0: 完整覆盖查询所有关键点
+- 0.7-0.8: 覆盖主要点，少数细节缺失
+- 0.5-0.6: 覆盖部分要点，有明显遗漏
+- 0.3-0.4: 只覆盖少数点
+- 0.0-0.2: 几乎没有有效信息
+
+### consistency（一致性）
+- 0.9-1.0: 所有结果信息一致，无矛盾
+- 0.7-0.8: 大部分结果信息一致，少数矛盾
+- 0.5-0.6: 部分结果信息一致，但有明显矛盾
+- 0.3-0.4: 结果信息不一致，多数矛盾
+- 0.0-0.2: 几乎不一致或无结果
+
+请以JSON格式返回评分，格式如下:
+{{
+    "relevance": 0.0-1.0,
+    "quality": 0.0-1.0,
+    "completeness": 0.0-1.0,
+    "consistency": 0.0-1.0,
+    "overall_confidence": 0.0-1.0
+}}"""
+
+        try:
+            response = await self.llm_model.acompletion(
+                messages=[
+                    {"role": "system", "content": "你是一个信息质量评估专家。请客观评估搜索结果的质量，返回有效的JSON格式。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+            )
+
+            import json
+            import re
+            content = response.choices[0].message.content
+
+            # 方法1：尝试用平衡括号匹配提取完整 JSON
+            # 这个方法可以正确处理嵌套的 JSON 对象
+            def extract_json_with_balanced_braces(text: str) -> str:
+                """提取第一个完整的 JSON 对象（支持嵌套）"""
+                start = text.find('{')
+                if start == -1:
+                    return None
+                depth = 0
+                for i, char in enumerate(text[start:], start):
+                    if char == '{':
+                        depth += 1
+                    elif char == '}':
+                        depth -= 1
+                        if depth == 0:
+                            return text[start:i+1]
+                return None
+
+            json_str = extract_json_with_balanced_braces(content)
+            if json_str:
+                try:
+                    result = json.loads(json_str)
+                    overall = float(result.get("overall_confidence", 0.5))
+                    return max(0.0, min(1.0, overall))
+                except json.JSONDecodeError:
+                    pass  # 继续尝试其他方法
+
+            # 方法2：尝试直接解析整个内容（如果 LLM 只返回了 JSON）
+            try:
+                result = json.loads(content.strip())
+                overall = float(result.get("overall_confidence", 0.5))
+                return max(0.0, min(1.0, overall))
+            except json.JSONDecodeError:
+                pass
+
+            # 方法3：后备方案 - 提取 "overall_confidence": 0.x 格式
+            # 比通用数字匹配更精确，避免误匹配其他数字
+            confidence_match = re.search(r'"overall_confidence"\s*:\s*(0\.\d+|1\.0|0|1)', content)
+            if confidence_match:
+                return max(0.0, min(1.0, float(confidence_match.group(1))))
+
+            print(f"[WARN] Could not parse LLM confidence response: {content[:200]}")
+
+        except Exception as e:
+            print(f"[WARN] LLM confidence evaluation failed: {e}")
+
+        return 0.5  # 默认值
     
     def get_performance_stats(self) -> Dict:
         """获取性能统计"""
@@ -399,6 +652,17 @@ async def enhanced_web_search_with_jina(query: str, max_results: int = 10,
     output_lines = []
     output_lines.append(f"研究场景: {result['research_plan'].get('strategy', 'unknown')}")
     output_lines.append(f"置信度: {result['confidence']:.2f}")
+    
+    # 输出详细的 confidence 信息
+    if result.get('llm_confidence') is not None:
+        output_lines.append(f"  - 规则评分: {result.get('rule_confidence', 0):.2f}")
+        output_lines.append(f"  - LLM评分: {result.get('llm_confidence', 0):.2f}")
+        weight = result.get('confidence_details', {}).get('confidence_weight', 0)
+        output_lines.append(f"  - 混合权重: 规则{(1-weight)*100:.0f}% + LLM{weight*100:.0f}%")
+    else:
+        output_lines.append(f"  - 规则评分: {result.get('rule_confidence', result['confidence']):.2f}")
+        output_lines.append(f"  - LLM评分: 未启用")
+    
     output_lines.append("")
     
     for i, finding in enumerate(result['findings'], 1):

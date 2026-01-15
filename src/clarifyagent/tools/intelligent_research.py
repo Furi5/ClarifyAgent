@@ -169,6 +169,17 @@ class IntelligentResearchSelector:
         Returns:
             (should_use, priority, reason)
         """
+        # 检查黑名单域名（这些域名直接禁用 Jina）
+        from ..config import JINA_SKIP_DOMAINS
+        url_lower = url.lower()
+        for skip_domain in JINA_SKIP_DOMAINS:
+            if skip_domain in url_lower:
+                return False, 0, f"黑名单域名: {skip_domain}，跳过 Jina 读取"
+        
+        # 过滤 PDF 文件：PDF 文件不适合 Jina 读取
+        if url_lower.endswith('.pdf') or '.pdf?' in url_lower or url_lower.endswith('.pdf/'):
+            return False, 0, "PDF 文件，跳过 Jina 读取"
+        
         # 检查高价值域名
         for domain_pattern, description in HIGH_VALUE_DOMAINS.items():
             if '*' in domain_pattern:
@@ -253,15 +264,15 @@ class IntelligentResearchSelector:
                 })
         
         # 根据 max_results 动态调整 Jina 目标数量
-        # 简单任务（max_results <= 8）: 最多 1-2 个 Jina 目标
-        # 标准任务（8 < max_results <= 15）: 最多 8 个
-        # 复杂任务（max_results > 15）: 最多 15 个
+        # 简单任务（max_results <= 8）: 最多 2-3 个 Jina 目标
+        # 标准任务（8 < max_results <= 15）: 最多 5 个
+        # 复杂任务（max_results > 15）: 最多 8 个
         if max_results <= 8:
-            max_jina_targets = min(0, len(plan['jina_targets']))  # 简单任务最多3个
+            max_jina_targets = min(3, len(plan['jina_targets']))  # 简单任务最多3个
         elif max_results <= 15:
-            max_jina_targets = min(0, len(plan['jina_targets']))  # 标准任务最多3个
+            max_jina_targets = min(5, len(plan['jina_targets']))  # 标准任务最多5个
         else:
-            max_jina_targets = min(0, len(plan['jina_targets']))  # 复杂任务最多5个
+            max_jina_targets = min(8, len(plan['jina_targets']))  # 复杂任务最多8个
         
         # 限制Jina调用数量以控制成本和时间
         plan['jina_targets'] = sorted(

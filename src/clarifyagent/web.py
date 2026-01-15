@@ -718,11 +718,13 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                     from .tools.concurrency_manager import run_concurrent_tasks
 
                     parallel_start = time.time()
+                    print(f"[DEBUG] Creating {len(planned_subtasks)} tasks for parallel execution...")
                     tasks = [executor.execute_single(subtask) for subtask in planned_subtasks]
+                    print(f"[DEBUG] Starting parallel execution of {len(tasks)} tasks...")
                     results = await run_concurrent_tasks(tasks)
                     parallel_end = time.time()
 
-                    print(f"[DEBUG] Executed planned subtasks: {parallel_end - parallel_start:.2f}s")
+                    print(f"[DEBUG] Executed planned subtasks: {parallel_end - parallel_start:.2f}s, got {len(results)} results")
 
                     subtask_results = [r for r in results if r is not None and not isinstance(r, Exception)]
 
@@ -1039,15 +1041,21 @@ async def stream_generator(session_id: str, message: str) -> AsyncGenerator[str,
                 
                 parallel_start = time.time()
                 print(f"[DEBUG] Starting intelligent parallel execution of {len(subtasks)} subtasks...")
+                for i, subtask in enumerate(subtasks):
+                    print(f"[DEBUG] Subtask {i+1}/{len(subtasks)}: {subtask.focus[:50]}...")
                 
                 # 创建任务列表
                 tasks = [executor.execute_single(subtask) for subtask in subtasks]
+                print(f"[DEBUG] Created {len(tasks)} task coroutines, starting execution...")
                 
                 # 使用智能并发控制执行
                 results = await run_concurrent_tasks(tasks)
                 
                 parallel_end = time.time()
-                print(f"[DEBUG] Intelligent parallel execution completed: {parallel_end - parallel_start:.2f}s")
+                print(f"[DEBUG] Intelligent parallel execution completed: {parallel_end - parallel_start:.2f}s, got {len(results)} results")
+                for i, result in enumerate(results):
+                    status = "OK" if result and not isinstance(result, Exception) else ("Exception" if isinstance(result, Exception) else "None")
+                    print(f"[DEBUG] Result {i+1}: {status}")
                 
                 # 过滤有效结果
                 subtask_results = [r for r in results if r is not None and not isinstance(r, Exception)]

@@ -1,47 +1,189 @@
 
 ---
 
-### 调小 Jina 深度检索次数
+## 2026-01-15: 添加详细的 confidence 日志和超时机制
 
-**修改内容：**
+### 问题分析
+第三个任务（"Keytruda 自首次获批后在美国新增的适应症列表（按时间顺序）"）耗时166.29秒，其中：
+- 最后一个工具调用在20:53:38完成，confidence=0.85（很高）
+- 但之后LLM还在继续思考，直到166.20s才完成
+- 耗时约128秒在工具调用后的思考/生成阶段
 
-1. **`src/clarifyagent/tools/intelligent_research.py` - `create_research_plan` 方法**
-   - 将 Jina 深度检索次数上限调小：
-     - 简单任务（max_results <= 8）: 从 3 个减少到 **2 个**
-     - 标准任务（8 < max_results <= 15）: 从 5 个减少到 **3 个**
-     - 复杂任务（max_results > 15）: 从 8 个减少到 **5 个**
+### 修改内容
 
-**技术细节：**
-- 修改位置：第259-264行的 `max_jina_targets` 计算逻辑
-- 这样可以减少 Jina API 调用次数，降低成本和执行时间
-- 同时保持对不同复杂度任务的合理覆盖
+1. **添加详细的 confidence 日志** (`src/clarifyagent/agents/subagent.py`):
+   - 在 `enhanced_research_tool` 中输出详细的 confidence 信息
+   - 包括 rule_confidence、llm_confidence 和最终 confidence
+   - 帮助追踪每次工具调用后的 confidence 值
 
-**影响：**
-- ✅ 减少了 Jina 深度读取次数，降低 API 成本
-- ✅ 缩短了研究任务的执行时间
-- ✅ 仍然保持对不同复杂度任务的合理信息覆盖
+2. **添加超时机制** (`src/clarifyagent/config.py`, `src/clarifyagent/agents/subagent.py`):
+   - 添加 `AGENT_EXECUTION_TIMEOUT` 配置（默认300秒/5分钟）
+   - 在 `Runner.run` 外包装 `asyncio.wait_for`，超时后抛出异常
+   - 防止任务无限期卡住
+
+3. **添加进度追踪日志** (`src/clarifyagent/tools/concurrency_manager.py`, `src/clarifyagent/agents/subagent.py`):
+   - 在 `concurrency_manager.py` 中，每30秒输出一次任务状态
+   - 在 `subagent.py` 中，每30秒输出一次 `Runner.run` 状态
+   - 帮助定位卡住的位置
+
+### 影响
+- 可以更清楚地看到每次工具调用后的 confidence 值
+- 如果任务超过5分钟，会自动超时并抛出异常
+- 可以追踪任务在哪个阶段耗时最长
+
+### 修复
+- 修复了 f-string 格式化错误：不能在格式说明符中直接使用三元表达式
+- 改为先计算字符串值，再在 f-string 中使用
 
 ---
 
-### 修复 Synthesizer 中 time 模块未导入的错误
+## 2026-01-15: 改进 Jina 工具的错误处理和超时设置
+
+### 问题描述
+- Jina 读取某些 URL 时遇到 SSL 连接错误（如 `SSLEOFError`）
+- 错误信息过于冗长，包含完整的堆栈跟踪
+- `jina_read` 函数没有超时设置，可能导致长时间等待
+
+### 修改内容
+
+1. **添加超时设置** (`src/clarifyagent/tools/jina.py`):
+   - 在 `jina_read` 函数中添加 `timeout=API_TIMEOUT` 参数
+   - 使用配置中的 `API_TIMEOUT`（默认30秒）
+   - 避免长时间等待无响应的请求
+
+2. **添加 HTTP 状态码检查** (`src/clarifyagent/tools/jina.py`):
+   - 检查响应状态码，如果不是 200 则抛出异常
+   - 提供更清晰的错误信息
+
+3. **改进错误日志** (`src/clarifyagent/tools/enhanced_research.py`):
+   - 简化错误日志，只显示关键信息
+   - 对于常见错误类型（SSL、超时、HTTP错误），显示简短友好的消息
+   - 避免冗长的堆栈跟踪信息
+
+### 影响
+- ✅ Jina 读取失败不会影响整体执行（已有 `_safe_jina_read` 保护）
+- ✅ 超时设置避免长时间等待
+- ✅ 错误日志更清晰，减少噪音
+- ✅ 更好的错误分类和提示
+
+### 进一步优化：添加并发控制和统计信息
 
 **问题描述：**
-- `synthesizer.py` 在第127和130行使用了 `time.time()`，但没有导入 `time` 模块
-- 导致运行时错误：`name 'time' is not defined`
+- 大量 Jina 读取遇到 SSL 连接错误
+- 所有 Jina 任务同时并行执行，没有并发限制
+- 无法看到成功/失败的比例统计
 
 **修改内容：**
 
-1. **`src/clarifyagent/synthesizer.py`**
-   - 在文件顶部添加 `import time`（第3行）
-   - 修复了 `time.time()` 调用时的未定义错误
+1. **添加并发控制** (`src/clarifyagent/tools/enhanced_research.py`):
+   - 使用 `asyncio.Semaphore` 限制同时进行的 Jina 请求数量
+   - 并发数限制为 `MAX_CONCURRENT_REQUESTS`（默认4）或 Jina 目标数量（取较小值）
+   - 避免过多并发请求导致 SSL 连接问题
 
-**技术细节：**
-- 代码在第128行和131行使用 `time.time()` 来计算 LLM 调用的执行时间
-- 虽然注释掉的日志代码中有 `import time`，但实际运行的代码中缺少这个导入
+2. **添加统计信息** (`src/clarifyagent/tools/enhanced_research.py`):
+   - 统计成功和失败的 Jina 读取数量
+   - 计算成功率百分比
+   - 输出格式：`[EnhancedResearch] Jina读取完成: X/Y 成功 (Z%), N 失败`
 
 **影响：**
-- ✅ 修复了 Synthesizer 运行时的 `NameError`
-- ✅ 现在可以正确计算 LLM 调用的执行时间
+- ✅ 减少并发请求数量，可能降低 SSL 错误率
+- ✅ 提供清晰的统计信息，便于了解 Jina 读取的成功率
+- ✅ 更好的资源管理和错误处理
+
+**注意：**
+- SSL 错误可能是某些网站对 Jina 请求的 SSL 验证问题，这是正常的
+- 即使有 SSL 错误，系统仍能正常工作（使用 Serper 搜索结果）
+- 并发控制有助于减少连接问题，但不能完全消除 SSL 错误
+
+---
+
+## 2026-01-15: 修复 Jina 灾难闭环 - 黑名单 + 硬超时 + Confidence 上限
+
+### 问题描述
+用户指出一个严重的工程问题：
+- **灾难闭环**：搜索 → 拿到 URL → Jina 被拒 → 等到超时 → confidence 还给高分
+- 这是一个逻辑上自洽但工程上灾难的闭环
+- 某些域名（如学术期刊网站）经常 SSL 错误，但仍然尝试 Jina 读取并等待超时
+- 即使所有 Jina 读取失败，confidence 仍然可能很高
+
+### 修改内容
+
+1. **添加 Jina 黑名单域名** (`src/clarifyagent/config.py`, `src/clarifyagent/tools/intelligent_research.py`):
+   - 在 `config.py` 中添加 `JINA_SKIP_DOMAINS` 列表，包含12个常见学术/医学网站域名
+   - 在 `intelligent_research.py` 的 `should_use_jina` 方法中添加黑名单检查
+   - 如果 URL 包含黑名单域名，直接返回 `False`，跳过 Jina 读取
+   - 黑名单域名包括：pmc.ncbi.nlm.nih.gov, nejm.org, sciencedirect.com, annalsofoncology.org, ascopubs.org, aacrjournals.org, onlinelibrary.wiley.com, link.springer.com, nature.com, clinicaltrials.gov, asco.org, esmo.org
+
+2. **Jina 硬超时 + 零重试** (`src/clarifyagent/config.py`, `src/clarifyagent/tools/jina.py`):
+   - 添加 `JINA_TIMEOUT` 配置（默认 3 秒），独立于 `API_TIMEOUT`
+   - 添加 `JINA_RETRIES` 配置（默认 0，零重试）
+   - 在 `jina_read` 函数中使用 `JINA_TIMEOUT` 而不是 `API_TIMEOUT`
+   - 避免长时间等待失败的请求
+
+3. **Jina 成功率为 0 时限制 Confidence 上限** (`src/clarifyagent/tools/enhanced_research.py`):
+   - 在 `smart_research` 中计算 `jina_success_rate`
+   - 将 `jina_success_rate` 传递给 `_calculate_confidence` 方法
+   - 如果 `jina_success_rate == 0.0` 且有 Jina 任务，限制 `final_confidence` 上限为 0.5
+   - 在 `confidence_details` 中记录限制原因
+
+### 技术细节
+
+**黑名单检查逻辑：**
+```python
+# 在 should_use_jina 方法开始处
+for skip_domain in JINA_SKIP_DOMAINS:
+    if skip_domain in url_lower:
+        return False, 0, f"黑名单域名: {skip_domain}，跳过 Jina 读取"
+```
+
+**Confidence 上限限制：**
+```python
+if jina_success_rate == 0.0 and len(sources) > 0:
+    final_confidence = min(final_confidence, 0.5)
+    confidence_details["jina_success_rate"] = 0.0
+    confidence_details["confidence_capped"] = True
+    confidence_details["cap_reason"] = "Jina 成功率 0%，限制 confidence 上限为 0.5"
+```
+
+### 影响
+- ✅ **打破灾难闭环**：Jina 失败不再导致高 confidence
+- ✅ **减少无效等待**：黑名单域名直接跳过，3秒硬超时避免长时间等待
+- ✅ **更准确的 Confidence**：反映实际的信息质量，而不是虚假的高分
+- ✅ **提高执行效率**：跳过已知失败的域名，减少超时等待
+
+### 配置说明
+- `JINA_TIMEOUT`: Jina 请求超时时间（默认 3 秒）
+- `JINA_RETRIES`: Jina 重试次数（默认 0，零重试）
+- `JINA_SKIP_DOMAINS`: Jina 黑名单域名列表（可通过环境变量扩展）
+
+---
+
+### 过滤 PDF URL，禁止 Jina 读取 PDF 文件
+
+**问题描述：**
+- PDF 文件不适合通过 Jina 读取（Jina 主要处理 HTML 网页）
+- PDF 文件读取可能失败或返回格式不理想的内容
+- 需要过滤掉 PDF 后缀的 URL，避免浪费 Jina 调用
+
+**修改内容：**
+
+1. **`src/clarifyagent/tools/intelligent_research.py` - `should_use_jina` 方法**
+   - 在方法开始处添加 PDF URL 检查
+   - 如果 URL 以 `.pdf` 结尾、包含 `.pdf?` 或以 `.pdf/` 结尾，直接返回 `False`
+   - 返回原因："PDF 文件，跳过 Jina 读取"
+
+**技术细节：**
+- 检查 URL 的小写形式，确保匹配各种大小写组合
+- 支持多种 PDF URL 格式：
+  - `https://example.com/file.pdf`
+  - `https://example.com/file.pdf?param=value`
+  - `https://example.com/file.pdf/`
+
+**影响：**
+- ✅ PDF 文件不再通过 Jina 读取，节省 API 调用
+- ✅ 避免 PDF 读取失败导致的错误
+- ✅ 提高系统稳定性和执行效率
+- ✅ PDF URL 仍然会出现在搜索结果中，只是不会被深度读取
 
 ---
 
@@ -88,6 +230,125 @@
 - ✅ 减少了简单任务的成本和执行时间
 - ✅ Jina 目标数量现在与任务复杂度匹配
 - ✅ LLM 通过指定 `max_results` 可以间接控制 Jina 使用量
+
+---
+
+### 添加 LLM confidence 输出
+
+**问题描述：**
+- LLM confidence 评分在内部计算，但没有在输出中单独显示
+- 用户无法看到 LLM 评估的具体评分值
+
+**修改内容：**
+
+1. **`src/clarifyagent/tools/enhanced_research.py` - `_calculate_confidence` 方法**
+   - 修改返回类型：从 `float` 改为 `Dict[str, Any]`
+   - 返回字典包含：
+     - `confidence`: 最终置信度（向后兼容）
+     - `rule_confidence`: 规则计算的置信度
+     - `llm_confidence`: LLM 评估的置信度（如果启用，否则为 None）
+     - `confidence_details`: 详细信息（包含权重等）
+
+2. **`src/clarifyagent/tools/enhanced_research.py` - `smart_research` 方法**
+   - 修改 confidence 计算结果的处理
+   - 在返回值中添加新字段：
+     - `rule_confidence`: 规则评分
+     - `llm_confidence`: LLM 评分
+     - `confidence_details`: 详细信息
+   - 保持 `confidence` 字段向后兼容
+
+3. **`src/clarifyagent/tools/enhanced_research.py` - `enhanced_web_search_with_jina` 适配器函数**
+   - 更新输出格式，显示详细的 confidence 信息
+   - 如果启用 LLM 评分，显示规则评分、LLM 评分和混合权重
+   - 如果未启用，显示规则评分和提示信息
+
+4. **`src/clarifyagent/agents/subagent.py` - `enhanced_research_tool` 函数**
+   - 在 `structured_output` 中添加新字段：
+     - `rule_confidence`: 规则评分
+     - `llm_confidence`: LLM 评分
+     - `confidence_details`: 详细信息
+   - 确保 LLM 可以访问这些详细信息
+
+**输出示例：**
+```
+置信度: 0.85
+  - 规则评分: 0.72
+  - LLM评分: 0.92
+  - 混合权重: 规则60% + LLM40%
+```
+
+**影响：**
+- ✅ 用户可以看到 LLM 评估的具体评分
+- ✅ 可以对比规则评分和 LLM 评分的差异
+- ✅ 向后兼容，`confidence` 字段仍然存在
+- ✅ 在 JSON 输出和文本输出中都包含详细信息
+
+---
+
+### 实现 LLM 评分增强 confidence 计算
+
+**问题描述：**
+- 当前的 confidence 计算完全基于规则（源数量、Jina 深度读取数量、场景权重）
+- 没有考虑信息质量、相关性、完整性等维度
+- 无法智能评估搜索结果是否真正回答了查询
+
+**修改内容：**
+
+1. **`src/clarifyagent/config.py`**
+   - 添加 `ENABLE_LLM_CONFIDENCE` 配置项：控制是否启用 LLM 评分（默认 false）
+   - 添加 `LLM_CONFIDENCE_WEIGHT` 配置项：LLM 评分权重（默认 0.4，即规则60%+LLM40%）
+
+2. **`src/clarifyagent/tools/enhanced_research.py` - `EnhancedResearchTool` 类**
+   - **`__init__` 方法**：
+     - 添加 `enable_llm_confidence` 参数（可选，默认从配置读取）
+     - 如果启用，初始化 LLM 模型（使用 fast 模型以节省成本）
+   
+   - **`_llm_evaluate_confidence` 方法（新增）**：
+     - 使用 LLM 评估信息质量，从4个维度评分：
+       - 相关性（Relevance）：搜索结果与查询的匹配程度
+       - 信息质量（Quality）：来源的权威性和可靠性
+       - 信息完整性（Completeness）：是否覆盖了查询的关键信息点
+       - 信息一致性（Consistency）：多个来源的信息是否一致
+     - 只评估前5个源以节省 token
+     - 返回综合评分（overall_confidence）
+     - 包含错误处理和 JSON 解析逻辑
+   
+   - **`_calculate_confidence` 方法（修改）**：
+     - 改为异步方法（`async def`）
+     - 添加 `query` 和 `findings` 参数
+     - 保留原有的规则计算作为基础评分
+     - 如果启用 LLM 评分，调用 `_llm_evaluate_confidence` 获取 LLM 评分
+     - 使用加权平均混合规则评分和 LLM 评分：
+       - `final_confidence = rule_confidence * (1 - LLM_CONFIDENCE_WEIGHT) + llm_confidence * LLM_CONFIDENCE_WEIGHT`
+     - 如果 LLM 评分失败，回退到规则评分
+     - 添加调试日志输出混合评分过程
+   
+   - **`smart_research` 方法**：
+     - 修改 confidence 计算调用为 `await self._calculate_confidence(...)`
+     - 传递 `query` 和 `findings` 参数
+
+**技术细节：**
+- LLM 评分使用快速模型（`build_model("fast")`）以控制成本
+- 只评估前5个源，限制 prompt 长度
+- 使用 JSON 格式返回评分，包含错误处理
+- 支持完全禁用（默认）或通过环境变量启用
+- 混合评分权重可配置（默认 40% LLM + 60% 规则）
+
+**使用方式：**
+在 `.env` 文件中添加：
+```bash
+# 启用 LLM 评分
+ENABLE_LLM_CONFIDENCE=true
+# LLM 评分权重（0.0=只用规则，1.0=只用LLM，0.4=规则60%+LLM40%）
+LLM_CONFIDENCE_WEIGHT=0.4
+```
+
+**影响：**
+- ✅ 可以更智能地评估搜索结果质量
+- ✅ 考虑信息相关性、质量、完整性、一致性
+- ✅ 默认禁用，不影响现有功能
+- ✅ 可配置权重，灵活调整规则和 LLM 评分的比例
+- ✅ 包含错误处理，失败时回退到规则评分
 
 ---
 

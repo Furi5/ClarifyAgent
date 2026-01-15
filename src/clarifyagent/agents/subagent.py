@@ -229,9 +229,15 @@ async def enhanced_research_tool(ctx: RunContextWrapper[Any], query: str, max_re
     print(f"[DEBUG] Enhanced research tool called with query: {query[:50]}..., max_results: {actual_max_results} (LLM specified: {max_results is not None})")
 
     try:
+        print(f"[DEBUG] enhanced_research_tool: Starting smart_research for query: {query[:50]}...")
         from ..tools.enhanced_research import EnhancedResearchTool
         tool = EnhancedResearchTool()
         result = await tool.smart_research(query, actual_max_results)
+        print(f"[DEBUG] enhanced_research_tool: smart_research completed, got {len(result.get('sources', []))} sources")
+
+        # 计算是否应该停止搜索
+        confidence = result.get("confidence", 0.5)
+        should_stop = confidence >= 0.7
 
         # 返回结构化 JSON，包含真实的 sources
         structured_output = {
@@ -245,17 +251,32 @@ async def enhanced_research_tool(ctx: RunContextWrapper[Any], query: str, max_re
                 }
                 for src in result.get("sources", [])
             ],
-            "confidence": result.get("confidence", 0.5),
+            "confidence": confidence,  # 最终置信度（向后兼容）
+            "rule_confidence": result.get("rule_confidence"),  # 规则计算的置信度
+            "llm_confidence": result.get("llm_confidence"),  # LLM 评估的置信度（如果启用）
+            "confidence_details": result.get("confidence_details", {}),  # 详细信息
             "scenario": result.get("research_plan", {}).get("strategy", "unknown"),
             "search_metadata": result.get("search_metadata", {}),
-            "performance": result.get("performance", {})
+            "performance": result.get("performance", {}),
+            # 明确告诉 LLM 是否应该停止
+            "should_stop": should_stop,
+            "action_hint": "STOP_AND_RETURN_RESULTS" if should_stop else "CONTINUE_SEARCH_IF_NEEDED"
         }
 
-        # 返回 JSON 字符串
+        # 返回 JSON 字符串，并在前面加上明确的指示
         json_output = json.dumps(structured_output, ensure_ascii=False, indent=2)
 
+        # 添加明确的行动指示，让 LLM 不要忽略
+        if should_stop:
+            json_output = f"⚠️ CONFIDENCE >= 0.7 - STOP SEARCHING NOW AND RETURN RESULTS ⚠️\n\n{json_output}\n\n⚠️ DO NOT SEARCH AGAIN. Extract findings and return final JSON output immediately. ⚠️"
+
         tool_end = time.time()
-        print(f"[DEBUG] Enhanced research completed: {tool_end - tool_start:.2f}s, {len(structured_output['sources'])} sources")
+        confidence = structured_output.get('confidence', 0)
+        rule_conf = structured_output.get('rule_confidence')
+        llm_conf = structured_output.get('llm_confidence')
+        rule_conf_str = f"{rule_conf:.2f}" if rule_conf is not None else "N/A"
+        llm_conf_str = f"{llm_conf:.2f}" if llm_conf is not None else "N/A"
+        print(f"[DEBUG] Enhanced research completed: {tool_end - tool_start:.2f}s, {len(structured_output['sources'])} sources, confidence={confidence:.2f} (rule={rule_conf_str}, llm={llm_conf_str})")
         
         # #region agent log
         try:
@@ -312,215 +333,70 @@ async def web_search_tool(ctx: RunContextWrapper[Any], query: str) -> str:
 
 # 增强单次研究的指令
 SUBAGENT_INSTRUCTIONS = """\
-You are an ENHANCED SINGLE-RESEARCH agent with intelligent research capabilities.
+You are a SINGLE-RESEARCH agent. Your job is to search for information and return results.
 
-## AVAILABLE TOOLS
-- enhanced_research_tool: Returns STRUCTURED JSON with real URLs from search results
-- web_search_tool: Basic search (fallback only)
+## ⚠️ CRITICAL STOP CONDITIONS - YOU MUST OBEY ⚠️
 
-## RESEARCH STRATEGY PLANNING (CRITICAL)
+**MANDATORY STOP**: You MUST stop searching and return results immediately when ANY of these conditions is met:
+1. Tool output contains `"should_stop": true`
+2. Tool output shows `confidence >= 0.7`
+3. You have made **3 search calls** (HARD LIMIT - no exceptions)
 
-You have FULL CONTROL over the research process. Your goal is to gather sufficient information to answer the research question, using as many searches as needed until you are confident you have enough information.
-
-### 1. Determine Initial Search Depth (max_results parameter)
-
-Before the first call, analyze task complexity and decide initial search depth:
-- **Simple fact lookup** (e.g., "What is X?", "When was Y approved?"): 5-8 results
-- **Standard research** (e.g., "Overview of X", "Key features of Y"): 10-15 results
-- **Comprehensive analysis** (e.g., "Compare multiple X", "Detailed analysis of Y"): 15-20 results
-- **Deep investigation** (e.g., "Complete pipeline analysis", "All synthesis routes"): 20-25 results
-
-**Important**: This is just the INITIAL depth. You can adjust it in subsequent calls based on what you learn.
-
-### 2. Iterative Search Strategy - Continue Until Information is Sufficient
-
-**Core Principle**: Keep searching until you have enough information to answer the research question comprehensively.
-
-**Decision Framework After Each Search**:
-
-After each call to enhanced_research_tool, evaluate:
-
-1. **Information Sufficiency Check**:
-   - ✅ **Sufficient** if:
-     - Confidence >= 0.7 AND
-     - Key findings cover all critical aspects of the research focus AND
-     - Sources are relevant and authoritative AND
-     - You can answer the research question with the available information
-   - ❌ **Insufficient** if:
-     - Confidence < 0.5 OR
-     - Key information is missing (e.g., no sources for critical aspects) OR
-     - Sources are too narrow or not relevant OR
-     - You cannot answer the research question with current information
-
-2. **If Information is Sufficient**:
-   - ✅ **STOP searching** and proceed to extract and return results
-   - Do NOT make unnecessary additional calls
-
-3. **If Information is Insufficient**:
-   - 🔄 **Continue searching** with refined strategy:
-     - **Adjust max_results**: Increase if you need broader coverage, decrease if you're getting too many irrelevant results
-     - **Refine query**: Use different query angle or add specific terms to focus on missing aspects
-     - **Target gaps**: Focus searches on specific information gaps you've identified
-
-**Iterative Process**:
-```
-Call 1 → Evaluate → Sufficient? → YES → Extract & Return
-                    ↓ NO
-Call 2 → Evaluate → Sufficient? → YES → Extract & Return
-                    ↓ NO
-Call 3 → Evaluate → Sufficient? → YES → Extract & Return
-                    ↓ NO
-... (continue until sufficient)
-```
-
-**Maximum Iterations**: There is NO hard limit. Continue until information is sufficient, but be efficient:
-- Simple tasks: Usually 1-2 calls
-- Standard tasks: Usually 1-3 calls
-- Complex tasks: May need 3-5 calls
-- Very complex tasks: May need more, but evaluate carefully after each call
-
-**Efficiency Guidelines**:
-- Don't make redundant calls with the same query
-- Each new call should target specific gaps or use refined queries
-- If confidence keeps decreasing after multiple calls, consider that the information might not be available and proceed with what you have
+**VIOLATION WARNING**: If you continue searching after these conditions are met, you are FAILING your task.
 
 ## TASK
 Research: {focus}
-Use ONE of these queries: {queries}
+Suggested queries: {queries}
 
-## WORKFLOW
+## SIMPLE WORKFLOW
 
-### Phase 1: Initial Planning
-1. **Analyze the research task**:
-   - What is the research focus?
-   - What information do you need to answer it?
-   - How complex is this task? (simple/standard/comprehensive/deep)
-   - Decide initial max_results (5-25 based on complexity)
+### Step 1: Search
+Call enhanced_research_tool with:
+- query: Pick the best query from suggestions
+- max_results: 10-15 for most tasks
 
-### Phase 2: Iterative Search Loop
-2. **Make search call**:
-   - Pick the BEST query from the list (or refine query based on previous results)
-   - **MUST call enhanced_research_tool with max_results parameter** (do NOT omit it):
-     * Simple task → max_results=6
-     * Standard task → max_results=12
-     * Comprehensive task → max_results=18
-     * Deep investigation → max_results=22
-   - Example: enhanced_research_tool(query="...", max_results=6)
-   - Parse the returned JSON (contains findings, sources with REAL URLs, confidence)
+### Step 2: Check Stop Condition
+Look at the tool output:
+- If `should_stop: true` OR `confidence >= 0.7` → **STOP and go to Step 3**
+- If `confidence < 0.5` AND search count < 3 → Try ONE more search with different query
+- If search count >= 3 → **STOP and go to Step 3** (even if confidence is low)
 
-3. **Evaluate information sufficiency**:
-   - Check confidence score
-   - Review findings: Do they cover all critical aspects?
-   - Review sources: Are they relevant and authoritative?
-   - Can you answer the research question with current information?
-   
-4. **Decision point**:
-   - **If SUFFICIENT** (confidence >= 0.7, key info present, can answer question):
-     - ✅ **EXIT LOOP** → Go to Phase 3
-   - **If INSUFFICIENT** (confidence < 0.5 OR missing key info OR cannot answer):
-   - 🔄 **CONTINUE LOOP** → Go back to step 2 with:
-     - Refined query (if needed)
-     - **Adjusted max_results** (if needed - increase if need more coverage, decrease if too many irrelevant results)
-     - Focus on identified gaps
-
-**Repeat Phase 2 until information is sufficient** (no hard limit, but be efficient)
-
-### Phase 3: Extract and Return
-5. **Extract and return results**:
-   - Combine findings from ALL searches you made
-   - Use sources DIRECTLY from tool output (do NOT modify URLs)
-   - Return complete JSON with all collected information
-
-## TOOL OUTPUT FORMAT
-The enhanced_research_tool returns JSON:
-{{
-    "findings": ["finding 1", "finding 2", ...],
-    "sources": [
-        {{"title": "...", "url": "REAL_URL", "snippet": "...", "source_type": "..."}},
-        ...
-    ],
-    "confidence": 0.8,
-    "scenario": "..."
-}}
-
-**Use this information to evaluate sufficiency**:
-- `confidence`: Overall confidence in the results (0.0-1.0)
-- `findings`: Key insights extracted from sources
-- `sources`: List of sources with URLs (use these directly)
-- `scenario`: Detected research scenario type
-
-**Evaluation criteria**:
-- Low confidence (< 0.5) → Likely need more searches
-- Few findings → May need broader search
-- Irrelevant sources → Need refined query
-- Missing key aspects → Need targeted searches for gaps
-
-## CRITICAL: SOURCE HANDLING
-- The tool already provides REAL URLs from SerpAPI - DO NOT modify them
-- COPY the sources array DIRECTLY from the tool output to your output
-- DO NOT reconstruct, modify, or guess URLs
-- DO NOT create new URLs not in the tool output
-- The sources in tool output are already validated and cleaned
-
-## OUTPUT (JSON only)
+### Step 3: Return Results
+Output JSON with your findings:
+```json
 {{
     "focus": "{focus}",
-    "key_findings": ["Combine tool findings with your analysis", "Extract key insights", "Add context"],
-    "sources": [COPY_DIRECTLY_FROM_TOOL_OUTPUT],
-    "confidence": USE_TOOL_CONFIDENCE_OR_ADJUST
+    "key_findings": ["finding 1", "finding 2", ...],
+    "sources": [copy sources from tool output],
+    "confidence": [use tool confidence]
 }}
+```
 
-## EXTRACTION RULES
-
-**CRITICAL: Adapt extraction based on research focus**
-
-If focus contains keywords like "挑战/challenge", "难点/difficulty", "瓶颈/bottleneck", "限制/limitation", "风险/risk":
-→ This is a TECHNICAL CHALLENGES analysis. You MUST extract:
-  - Specific technical obstacles and barriers
-  - Unsolved problems and open questions
-  - Failed approaches and why they didn't work
-  - Limitations of current methods
-  - Risks and potential issues
-  - Expert opinions on difficulties
-  - DO NOT only list positive facts - focus on NEGATIVE/CHALLENGING aspects
-
-If focus contains keywords like "mechanism", "pathway", "target", "作用机制":
-→ This is a SCIENTIFIC MECHANISM analysis. Extract:
-  - Molecular mechanisms and pathways
-  - Structure-activity relationships
-  - Biological targets and interactions
-  - Scientific evidence and data
-
-If focus contains keywords like "pipeline", "clinical", "企业/company", "竞争/competitive":
-→ This is a COMMERCIAL/CLINICAL analysis. Extract:
-  - Development stages and timelines
-  - Company strategies and positioning
-  - Clinical trial results and progress
-  - Market opportunities and threats
-
-**General rules** (apply to all):
-- Each finding = one complete, specific, actionable insight
-- Include quantitative data when available (numbers, percentages, dates)
-- Cite specific sources for key claims
-- Use tool's confidence as baseline, adjust based on finding quality
-
-EXAMPLE:
-Tool returns:
+## TOOL OUTPUT FORMAT
+The tool returns:
+```json
 {{
-    "findings": ["Found synthesis route"],
-    "sources": [{{"title": "Paper A", "url": "https://real-url.com/123", "snippet": "..."}}],
-    "confidence": 0.8
+    "findings": [...],
+    "sources": [...],
+    "confidence": 0.8,
+    "should_stop": true,  // ← OBEY THIS FLAG
+    "action_hint": "STOP_AND_RETURN_RESULTS"  // ← OBEY THIS HINT
 }}
+```
 
-Your output:
-{{
-    "focus": "Synthesis routes",
-    "key_findings": ["Found synthesis route with 85% yield", "Uses Pd catalyst", "Requires 3 steps"],
-    "sources": [{{"title": "Paper A", "url": "https://real-url.com/123", "snippet": "..."}}],
-    "confidence": 0.8
-}}
+## RULES
+1. **NEVER search more than 3 times** - this is a hard limit
+2. **ALWAYS obey `should_stop: true`** - stop immediately when you see this
+3. **Copy sources directly** - do not modify URLs
+4. **Return JSON only** - no explanations needed
 
-REMEMBER: The tool provides REAL URLs - use them EXACTLY as given. No modifications needed!
+## EXTRACTION GUIDELINES
+- Extract specific facts with numbers/dates when available
+- For "challenges/risks" topics: focus on problems and obstacles
+- For "clinical/pipeline" topics: focus on trial results and progress
+- For "mechanism" topics: focus on scientific pathways
+
+REMEMBER: Quality over quantity. One good search is better than many redundant searches.
 """
 
 
@@ -611,7 +487,58 @@ class Subagent:
             except: pass
             # #endregion
             
-            result = await Runner.run(agent, input_prompt)
+            # 添加超时检查日志
+            import asyncio
+            check_task = None
+            async def log_progress():
+                check_count = 0
+                while True:
+                    await asyncio.sleep(30.0)  # 每30秒检查一次
+                    check_count += 1
+                    elapsed = time.time() - runner_start
+                    print(f"[DEBUG] Subagent-{self.agent_id} Runner.run still running after {elapsed:.1f}s (check #{check_count})...")
+            
+            check_task = asyncio.create_task(log_progress())
+            
+            try:
+                # 添加超时保护 + 限制工具调用次数
+                from ..config import AGENT_EXECUTION_TIMEOUT
+                from agents.exceptions import MaxTurnsExceeded
+
+                # max_turns=4: 限制最多 4 次 LLM 循环
+                # 典型流程：Turn1=搜索 → Turn2=搜索(可选) → Turn3=搜索(可选) → Turn4=生成输出
+                # 这是硬性限制，防止 LLM 无限循环搜索
+                MAX_AGENT_TURNS = 4
+
+                result = await asyncio.wait_for(
+                    Runner.run(agent, input_prompt, max_turns=MAX_AGENT_TURNS),
+                    timeout=AGENT_EXECUTION_TIMEOUT
+                )
+                check_task.cancel()
+            except MaxTurnsExceeded as e:
+                # 达到最大循环次数，这是正常的退出情况（不是错误）
+                check_task.cancel()
+                elapsed = time.time() - runner_start
+                print(f"[INFO] Subagent-{self.agent_id} reached max_turns={MAX_AGENT_TURNS} after {elapsed:.1f}s - returning with available data")
+
+                # 当 max_turns 被超过时，返回一个基本结果
+                # run_data 可能包含已收集的信息
+                total_time = time.time() - start_time
+                return SubtaskResult(
+                    subtask_id=subtask.id,
+                    focus=subtask.focus,
+                    findings=[f"研究达到最大搜索次数限制（{MAX_AGENT_TURNS}次），已收集可用信息"],
+                    sources=[],
+                    confidence=0.5  # 给一个中等的 confidence
+                )
+            except asyncio.TimeoutError:
+                check_task.cancel()
+                elapsed = time.time() - runner_start
+                print(f"[ERROR] Subagent-{self.agent_id} Runner.run TIMEOUT after {elapsed:.1f}s (limit: {AGENT_EXECUTION_TIMEOUT}s)")
+                raise Exception(f"Agent execution timeout after {AGENT_EXECUTION_TIMEOUT}s")
+            except Exception as e:
+                check_task.cancel()
+                raise
             
             runner_end = time.time()
             print(f"[DEBUG] Subagent-{self.agent_id} Runner.run completed: {runner_end - runner_start:.2f}s")

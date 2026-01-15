@@ -23,7 +23,14 @@ def truncate_content(text: str, max_chars: int = None) -> str:
 
 
 async def jina_read(url: str, max_chars: int = None) -> str:
-    """Read and extract content from a URL using Jina API."""
+    """
+    Read and extract content from a URL using Jina API.
+    
+    硬超时 + 零重试策略：避免长时间等待和重复失败。
+    """
+    from ..config import JINA_TIMEOUT
+    # 注意：JINA_RETRIES 配置存在但未使用，因为 requests.get 本身不支持重试
+    # 零重试策略通过不实现重试逻辑来实现
     headers = {
         "Authorization": f"Bearer {JINA_API_KEY}",
         "X-Engine": "browser",
@@ -31,10 +38,14 @@ async def jina_read(url: str, max_chars: int = None) -> str:
         "X-Return-Format": "markdown"
     }
     loop = asyncio.get_event_loop()
+    # 使用 Jina 专用超时（默认3秒），零重试
     response = await loop.run_in_executor(
         None,
-        partial(requests.get, url, headers=headers)
+        partial(requests.get, url, headers=headers, timeout=JINA_TIMEOUT)
     )
+    # 检查响应状态
+    if response.status_code != 200:
+        raise Exception(f"Jina API returned status {response.status_code}")
     content = response.text
     return truncate_content(content, max_chars or MAX_CONTENT_CHARS)
 

@@ -97,16 +97,44 @@ class ConcurrencyManager:
         semaphore = asyncio.Semaphore(max_concurrent)
         
         async def run_with_semaphore(task):
+            task_id = id(task)  # 使用 task 的 id 作为标识
             async with semaphore:
                 start_time = time.time()
+                print(f"[DEBUG] Task {task_id} started")
                 try:
-                    result = await task
-                    response_time = time.time() - start_time
-                    self.record_request(response_time, success=True)
-                    return result
+                    # 添加超时检查（每30秒输出一次状态）
+                    import asyncio
+                    check_interval = 30.0
+                    last_check = start_time
+                    
+                    async def check_progress():
+                        nonlocal last_check
+                        while True:
+                            await asyncio.sleep(check_interval)
+                            elapsed = time.time() - start_time
+                            if elapsed - last_check >= check_interval:
+                                print(f"[DEBUG] Task {task_id} still running after {elapsed:.1f}s...")
+                                last_check = time.time()
+                    
+                    # 启动进度检查（后台任务）
+                    progress_task = asyncio.create_task(check_progress())
+                    
+                    try:
+                        result = await task
+                        progress_task.cancel()  # 任务完成，取消进度检查
+                        response_time = time.time() - start_time
+                        self.record_request(response_time, success=True)
+                        print(f"[DEBUG] Task {task_id} completed: {response_time:.2f}s")
+                        return result
+                    except asyncio.CancelledError:
+                        progress_task.cancel()
+                        raise
                 except Exception as e:
                     response_time = time.time() - start_time
                     self.record_request(response_time, success=False)
+                    print(f"[DEBUG] Task {task_id} failed after {response_time:.2f}s: {e}")
+                    import traceback
+                    traceback.print_exc()
                     raise e
         
         # 包装所有任务
@@ -114,8 +142,10 @@ class ConcurrencyManager:
         
         # 并发执行
         start_time = time.time()
+        print(f"[DEBUG] Starting asyncio.gather for {len(wrapped_tasks)} tasks...")
         results = await asyncio.gather(*wrapped_tasks, return_exceptions=True)
         total_time = time.time() - start_time
+        print(f"[DEBUG] asyncio.gather completed after {total_time:.2f}s")
         
         # 统计结果
         success_count = sum(1 for r in results if not isinstance(r, Exception))
